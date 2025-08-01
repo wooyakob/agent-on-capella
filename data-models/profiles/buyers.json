@@ -1,0 +1,46 @@
+[
+  {
+    "buyer": "Jake Wood",
+    "budget": {
+      "min": 750000,
+      "max": 950000
+    },
+    "bedrooms": 1,
+    "bathrooms": 2,
+    "location": "San Diego"
+  },
+
+    {
+    "buyer": "Seong Cho",
+    "budget": {
+      "min": 850000,
+      "max": 1200000
+    },
+    "bedrooms": 2,
+    "bathrooms": 2,
+    "location": "Washington"
+  },
+
+    {
+    "buyer": "Daniel James",
+    "budget": {
+      "min": 1200000,
+      "max": 1500000
+    },
+    "bedrooms": 3,
+    "bathrooms": 3,
+    "location": "Vancouver"
+  },
+
+  {
+    "buyer": "Kevin Farley",
+    "budget": {
+      "min": 1100000,
+      "max": 1350000
+    },
+    "bedrooms": 4,
+    "bathrooms": 2,
+    "location": "Washington"
+  }
+
+]

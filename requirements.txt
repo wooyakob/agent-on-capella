@@ -1,0 +1,12 @@
+couchbase==4.3.5
+python-dotenv==1.0.1
+sentence-transformers==3.4.1
+flask==3.1.0
+langchain-aws==0.2.21
+langchain-core==0.3.28
+boto3>=1.35.0
+
+# Instead of using HuggingFace Text Embeddings Model
+langchain-huggingface==0.1.2
+# Use AWS Bedrock Titan Text Embeddings V2 Model
+langchain-aws==0.2.21

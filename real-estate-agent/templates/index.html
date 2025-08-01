@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real Estate Agent</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>🏠 Real Estate Agent</h1>
+            <p>Find your dream property with the help of Couchbase Capella</p>
+        </div>
+        
+        <div class="chat-messages" id="chatMessages">
+            <div class="loading show" id="initialLoading">
+                🤖 Initializing your Real Estate Agent with Property Knowledge, please add your name to get Profile Knowledge.
+            </div>
+        </div>
+        
+        <div class="profile-section">
+            <span class="profile-label">🏠 Your Name:</span>
+            <input 
+                type="text" 
+                class="profile-input" 
+                id="buyerNameInput" 
+                placeholder="Enter your name for extra knowledge about your profile"
+            >
+            <span class="profile-status" id="profileStatus"></span>
+        </div>
+        
+        <div class="chat-input-container">
+            <form class="chat-input-form" id="chatForm">
+                <input 
+                    type="text" 
+                    class="chat-input" 
+                    id="messageInput" 
+                    placeholder="Tell me about your dream property..."
+                    disabled
+                >
+                <button type="submit" class="send-button" id="sendButton" disabled>
+                    Send
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+</body>
+</html>
