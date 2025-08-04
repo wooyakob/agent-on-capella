@@ -8,6 +8,9 @@ import sys
 import logging
 from datetime import datetime
 import uuid
+from dotenv import load_dotenv
+
+load_dotenv()
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -18,7 +21,7 @@ spec.loader.exec_module(real_estate_agent)
 RealEstateAgent = real_estate_agent.RealEstateAgent
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'your-secret-key-change-this')
+app.secret_key = os.environ.get("SECRET_KEY")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
