@@ -40,7 +40,7 @@ llm = ChatOpenAI(model="gpt-4o")
 llm_with_tools = llm.bind_tools(tools)
 
 # System message
-sys_msg = SystemMessage(content="You are a helpful assistant tasked with writing performing arithmetic on a set of inputs.")
+sys_msg = SystemMessage(content="You are a helpful assistant tasked with performing arithmetic on a set of inputs.")
 
 # Node
 def assistant(state: MessagesState):
