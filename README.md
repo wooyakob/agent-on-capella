@@ -24,3 +24,5 @@ cosine is best for semantic similarity, measuring the angle between vectors and 
 - Ask users to describe their dream property
 - Use Titan embeddings to search for matching properties
 - Present results in a conversational manner
+
+Add basic CI/CD, add development branch with Gemini for code reviews of PRs into main.

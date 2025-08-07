@@ -4,9 +4,12 @@ sentence-transformers
 flask
 langchain-aws
 langchain-core
+langgraph
+langgraph-prebuilt
+langgraph-sdk
+langsmith
+langchain-community
+langchain-openai
+notebook
+tavily-python
 boto3
-
-# Instead of using HuggingFace Text Embeddings Model
-langchain-huggingface
-# Use AWS Bedrock Titan Text Embeddings V2 Model
-langchain-aws

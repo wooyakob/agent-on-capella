@@ -4,3 +4,7 @@ venv/
 .env
 # Apple / Mac OS
 .DS_Store
+
+__pycache__/
+*.pyc
+*.pyo
