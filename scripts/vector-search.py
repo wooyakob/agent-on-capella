@@ -47,6 +47,6 @@ try:
     print("Reported total rows: {}".format(result.metadata().metrics().total_rows()))
         
 except CouchbaseException as ex:
-    print(f"❌ Search failed: {str(ex)}")
+    print(f"Search failed: {str(ex)}")
     import traceback
     traceback.print_exc()
