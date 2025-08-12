@@ -658,7 +658,7 @@ Be professional but approachable, like a knowledgeable real estate expert who ha
         """Get buyer profile (wrapper for compatibility)"""
         return self.load_buyer_profile(buyer_name)
     
-    def search_properties(self, query_text: str, num_results: int = 3, buyer_profile: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+    def search_properties(self, query_text: str, num_results: int = 3, buyer_profile: Dict[str, Any] = None) -> Dict[str, Any]:
         """Main method to search properties using the LangGraph workflow"""
         try:
             initial_state = RealEstateAgentState(
