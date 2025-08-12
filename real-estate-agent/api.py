@@ -10,11 +10,7 @@ load_dotenv()
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-import importlib.util
-spec = importlib.util.spec_from_file_location("agent", "agent.py")
-agent_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(agent_module)
-LangGraphRealEstateAgent = agent_module.LangGraphRealEstateAgent
+from agent import LangGraphRealEstateAgent
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY")
