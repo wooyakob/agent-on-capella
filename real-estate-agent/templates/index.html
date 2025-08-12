@@ -9,25 +9,33 @@
 <body>
     <div class="chat-container">
         <div class="chat-header">
-            <h1>🏠 Real Estate Agent</h1>
-            <p>Find your dream property with the help of Couchbase Capella</p>
+            <h1>Real Estate Agent</h1>
+            <p>Find your dream house suited to your preferences, research the market and local house prices, and get advice on buying your perfect home</p>
         </div>
         
         <div class="chat-messages" id="chatMessages">
             <div class="loading show" id="initialLoading">
-                🤖 Initializing your Real Estate Agent with Property Knowledge, please add your name to get Profile Knowledge.
+                Loading your Real Estate Agent...
             </div>
         </div>
         
         <div class="profile-section">
-            <span class="profile-label">🏠 Your Name:</span>
+            <span class="profile-label">Your Name:</span>
             <input 
                 type="text" 
                 class="profile-input" 
                 id="buyerNameInput" 
-                placeholder="Enter your name for extra knowledge about your profile"
+                placeholder="Enter your name for personalized property recommendations"
             >
             <span class="profile-status" id="profileStatus"></span>
+            <button 
+                type="button" 
+                class="clear-history-button" 
+                id="clearHistoryButton"
+                title="Clear conversation history"
+            >
+                🗑️ Clear History
+            </button>
         </div>
         
         <div class="chat-input-container">
@@ -36,7 +44,7 @@
                     type="text" 
                     class="chat-input" 
                     id="messageInput" 
-                    placeholder="Tell me about your dream property..."
+                    placeholder="Describe your dream home, ask about the market, or get real estate advice..."
                     disabled
                 >
                 <button type="submit" class="send-button" id="sendButton" disabled>
