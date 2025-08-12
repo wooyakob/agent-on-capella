@@ -149,16 +149,6 @@ class ChatApp {
         }
     }
     
-    isPropertySearchQuery(message) {
-        const propertyKeywords = [
-            'house', 'home', 'property', 'bedroom', 'bathroom', 'price', 'buy', 'purchase', 
-            'condo', 'apartment', 'looking for', 'want', 'need', 'search', 'find'
-        ];
-        
-        const lowerMessage = message.toLowerCase();
-        return propertyKeywords.some(keyword => lowerMessage.includes(keyword));
-    }
-    
     addMessage(sender, content, properties = []) {
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${sender}`;
