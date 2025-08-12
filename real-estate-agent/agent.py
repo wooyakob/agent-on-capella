@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import traceback
 from typing import List, Dict, Any, Literal
 from typing_extensions import TypedDict
 from datetime import timedelta
@@ -45,8 +46,8 @@ class LangGraphRealEstateAgent:
         """Set up all tools: LLM, embeddings, Couchbase, and Tavily."""
         try:
             self.llm = ChatBedrock(
-                model_id="us.meta.llama4-maverick-17b-instruct-v1:0",
-                region_name=os.getenv("AWS_REGION", "us-east-2"),
+                model_id=("us.meta.llama4-maverick-17b-instruct-v1:0"),
+                region_name=("us-east-2"),
                 temperature=0.7
             )
             
@@ -57,10 +58,10 @@ class LangGraphRealEstateAgent:
             cluster = Cluster(os.getenv("CB_HOSTNAME"), options)
             cluster.wait_until_ready(timedelta(seconds=5))
             
-            BUCKET = "properties"
-            SCOPE = "2025-listings"
-            COLLECTION = "united-states"
-            SEARCH_INDEX = "properties-index"
+            BUCKET = os.getenv("CB_BUCKET", "properties")
+            SCOPE = os.getenv("CB_SCOPE", "2025-listings")
+            COLLECTION = os.getenv("CB_COLLECTION", "united-states")
+            SEARCH_INDEX = os.getenv("CB_SEARCH_INDEX", "properties-index")
             
             self.vector_store = CouchbaseSearchVectorStore(
                 cluster=cluster,
@@ -365,10 +366,19 @@ Query 3:"""
         for query in search_queries[:3]: 
             try:
                 logger.info(f"Searching with query: {query}")
-                results = self.tavily_market_search(query)
-                if results:
-                    all_market_info.extend(results)
-                    logger.info(f"Found {len(results)} results for query: {query}")
+                results = self.tavily_search.invoke(query)
+                
+                # Handle different response formats from tavily_search
+                if isinstance(results, dict) and 'results' in results:
+                    actual_results = results['results']
+                elif isinstance(results, list):
+                    actual_results = results
+                else:
+                    actual_results = [results] if results else []
+                
+                if actual_results:
+                    all_market_info.extend(actual_results)
+                    logger.info(f"Found {len(actual_results)} results for query: {query}")
             except Exception as e:
                 logger.error(f"Error searching with query '{query}': {e}")
                 continue
@@ -686,7 +696,6 @@ Be professional but approachable, like a knowledgeable real estate expert who ha
             
         except Exception as e:
             logger.error(f"Search properties error: {e}")
-            import traceback
             logger.error(traceback.format_exc())
             return {
                 "response": "I'm sorry, I encountered an error while searching for properties.",
@@ -726,7 +735,6 @@ Be professional but approachable, like a knowledgeable real estate expert who ha
             
         except Exception as e:
             logger.error(f"Chat error: {e}")
-            import traceback
             logger.error(traceback.format_exc())
             error_response = "I'm sorry, I'm having trouble processing your request right now."
             self.conversation_history.append({"role": "assistant", "content": error_response})

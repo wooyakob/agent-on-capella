@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, jsonify, session
 import os
 import sys
 import logging
+import traceback
 from datetime import datetime
 import uuid
 from dotenv import load_dotenv
@@ -62,7 +63,6 @@ def start_session():
         })
     except Exception as e:
         logger.error(f"Failed to start session: {e}")
-        import traceback
         logger.error(traceback.format_exc())
         return jsonify({
             'success': False,
@@ -112,7 +112,6 @@ def chat():
         
     except Exception as e:
         logger.error(f"Chat error: {e}")
-        import traceback
         logger.error(traceback.format_exc())
         return jsonify({
             'success': False,
