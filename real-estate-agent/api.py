@@ -240,13 +240,15 @@ def graph_info():
                     'analyze_intent',
                     'property_search', 
                     'market_search',
+                    'location_context',
                     'general_chat',
                     'format_response'
                 ],
-                'flow': 'START → analyze_intent → [property_search|market_search|general_chat] → format_response → END',
+                'flow': 'START → analyze_intent → [property_search|market_search|location_context|general_chat] → format_response → END',
                 'tools': {
                     'couchbase_vector_search': 'Semantic property search using Titan embeddings',
                     'tavily_search': 'Real-time web search for market information',
+                    'google_maps': 'Reverse geocoding and nearby places (schools, restaurants) via Google Maps Platform',
                     'bedrock_llm': 'Llama 4 model for general conversation'
                 }
             }

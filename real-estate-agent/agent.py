@@ -5,6 +5,9 @@ import traceback
 from typing import List, Dict, Any, Literal
 from typing_extensions import TypedDict
 from datetime import timedelta
+import math
+from urllib.parse import quote_plus
+import requests
 
 from langgraph.graph import StateGraph, START, END
 from langchain_aws import BedrockEmbeddings, ChatBedrock
@@ -39,6 +42,7 @@ class LangGraphRealEstateAgent:
     def __init__(self):
         """Initialize the LangGraph Real Estate Agent."""
         self.conversation_history = []
+        self.last_properties: List[Dict[str, Any]] = []
         self.setup_tools()
         self.setup_graph()
         
@@ -75,6 +79,8 @@ class LangGraphRealEstateAgent:
             )
             
             self.tavily_search = TavilySearch(max_results=3)
+            # Google Maps Platform API key
+            self.gmaps_key = os.getenv("GMAPS_API_KEY")
             
             logger.info("All tools initialized successfully!")
             
@@ -95,6 +101,10 @@ class LangGraphRealEstateAgent:
                     "bedrooms": doc.metadata.get('bedrooms', 'N/A'),
                     "bathrooms": doc.metadata.get('bathrooms', 'N/A'),
                     "house_sqft": doc.metadata.get('house_sqft', 'N/A'),
+                    "geo": {
+                        "lat": (doc.metadata.get('geo', {}) or {}).get('lat'),
+                        "lon": (doc.metadata.get('geo', {}) or {}).get('lon')
+                    },
                     "description": doc.page_content,
                     "similarity_score": round(score, 3)
                 }
@@ -102,6 +112,87 @@ class LangGraphRealEstateAgent:
             return properties
         except Exception as e:
             logger.error(f"Couchbase search error: {e}")
+            return []
+
+    # --- Google Maps helper functions ---
+    def _reverse_geocode(self, lat: float, lon: float) -> Dict[str, Any]:
+        """Reverse geocode coordinates to human-readable address and embeddable map URL."""
+        if not self.gmaps_key or lat is None or lon is None:
+            return {"address": None, "embedUrl": None}
+        try:
+            url = f"https://maps.googleapis.com/maps/api/geocode/json?latlng={lat},{lon}&key={self.gmaps_key}"
+            resp = requests.get(url, timeout=8)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("results"):
+                    address = data["results"][0].get("formatted_address")
+                    embed = f"https://www.google.com/maps/embed/v1/place?key={self.gmaps_key}&q={quote_plus(address)}" if address else None
+                    return {"address": address, "embedUrl": embed}
+        except Exception as e:
+            logger.debug(f"Reverse geocode error: {e}")
+        return {"address": None, "embedUrl": None}
+
+    def _geocode_address(self, address: str) -> Dict[str, Any]:
+        """Forward geocode an address to lat/lon when geo is missing."""
+        if not self.gmaps_key or not address:
+            return {"lat": None, "lon": None}
+        try:
+            url = f"https://maps.googleapis.com/maps/api/geocode/json?address={quote_plus(address)}&key={self.gmaps_key}"
+            resp = requests.get(url, timeout=8)
+            if resp.status_code == 200:
+                data = resp.json()
+                results = data.get("results", [])
+                if results:
+                    loc = results[0].get("geometry", {}).get("location", {})
+                    return {"lat": loc.get("lat"), "lon": loc.get("lng")}
+        except Exception as e:
+            logger.debug(f"Forward geocode error: {e}")
+        return {"lat": None, "lon": None}
+
+    def _haversine_km(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        R = 6371.0
+        if None in [lat1, lon1, lat2, lon2]:
+            return None
+        phi1, phi2 = math.radians(lat1), math.radians(lat2)
+        dphi = math.radians(lat2 - lat1)
+        dlambda = math.radians(lon2 - lon1)
+        a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        return R * c
+
+    def _nearby_places(self, lat: float, lon: float, place_type: str, radius: int = 3000, min_rating: float = 4.0, max_results: int = 5) -> List[Dict[str, Any]]:
+        """Find nearby places of a given type using Google Places Nearby Search API."""
+        if not self.gmaps_key or lat is None or lon is None:
+            return []
+        try:
+            url = (
+                "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
+                f"?location={lat},{lon}&radius={radius}&type={place_type}&key={self.gmaps_key}"
+            )
+            resp = requests.get(url, timeout=8)
+            results = []
+            if resp.status_code == 200:
+                data = resp.json()
+                for r in data.get("results", []):
+                    rating = r.get("rating")
+                    loc = (r.get("geometry", {}).get("location") or {})
+                    dist_km = self._haversine_km(lat, lon, loc.get("lat"), loc.get("lng"))
+                    if rating is None or (min_rating is not None and rating < min_rating):
+                        continue
+                    results.append({
+                        "name": r.get("name"),
+                        "rating": rating,
+                        "user_ratings_total": r.get("user_ratings_total"),
+                        "address": r.get("vicinity"),
+                        "distance_km": round(dist_km, 2) if dist_km is not None else None,
+                        "types": r.get("types", []),
+                        "place_id": r.get("place_id")
+                    })
+            # sort by distance then rating desc
+            results.sort(key=lambda x: (x["distance_km"] if x["distance_km"] is not None else 1e9, -float(x["rating"] or 0)))
+            return results[:max_results]
+        except Exception as e:
+            logger.debug(f"Nearby places error: {e}")
             return []
     
     def tavily_market_search(self, query: str) -> List[Dict[str, Any]]:
@@ -234,18 +325,22 @@ class LangGraphRealEstateAgent:
 2. MARKET_SEARCH - Use when user asks for current market information, pricing data, trends, or statistics they need to research online
    Examples: "what are San Diego market trends?", "average price for 2-bedroom homes", "how much do houses cost in...", "what's the real estate market like?", "are prices going up?", "market analysis for..."
 
-3. GENERAL_CHAT - Use for general real estate advice, process questions, or conversational responses
+3. LOCATION_CONTEXT - Use when user asks about neighborhood/location amenities or proximity such as schools, restaurants, safety, commute, or "is this house near a good school/restaurant?"
+   Examples: "is this near good schools?", "what restaurants are nearby?", "how's the neighborhood?"
+
+4. GENERAL_CHAT - Use for general real estate advice, process questions, or conversational responses
    Examples: "how do I get pre-approved?", "what's the buying process?", "tell me about real estate", "should I buy or rent?"
 
 Key indicators:
 - Market questions often ask about: prices, costs, averages, trends, market conditions, statistics
 - Property searches ask about: finding, looking for, showing, specific property features
+- Location context asks about: nearby schools, restaurants, commute time, amenities, neighborhood quality
 - General chat asks about: processes, advice, how-to questions
 
 {context}
 Current User Query: "{query}"
 
-Based on the conversation context and current query, respond with ONLY one word: PROPERTY_SEARCH, MARKET_SEARCH, or GENERAL_CHAT"""
+Based on the conversation context and current query, respond with ONLY one word: PROPERTY_SEARCH, MARKET_SEARCH, LOCATION_CONTEXT, or GENERAL_CHAT"""
 
         try:
             response = self.llm.invoke([
@@ -261,6 +356,8 @@ Based on the conversation context and current query, respond with ONLY one word:
                 next_action = "property_search"
             elif "MARKET_SEARCH" in intent:
                 next_action = "market_search"
+            elif "LOCATION_CONTEXT" in intent:
+                next_action = "location_context"
             else:
                 next_action = "general_chat"
                 
@@ -313,8 +410,63 @@ Enhanced Query:"""
             properties = self.couchbase_property_search(user_query, k=5)
         
         state["search_results"] = properties
+        # Persist for follow-up location questions like "Is this house near good schools?"
+        self.last_properties = properties
         logger.info(f"Found {len(properties)} properties")
         
+        return state
+
+    def location_context_node(self, state: RealEstateAgentState) -> RealEstateAgentState:
+        """Answer questions about nearby amenities using Google Maps around top matched properties."""
+        logger.info("Fetching location context (schools, restaurants) using Google Maps...")
+        user_query = state.get("user_query", "")
+        properties = state.get("search_results", [])
+
+        # If we don't have properties yet, try to find some broadly
+        if not properties:
+            # Prefer last known properties from a previous result set
+            if getattr(self, "last_properties", None):
+                properties = self.last_properties
+            else:
+                fallback_props = self.couchbase_property_search(user_query, k=3)
+                properties = fallback_props
+
+        enriched = []
+        for prop in properties[:3]:
+            lat = (prop.get("geo") or {}).get("lat")
+            lon = (prop.get("geo") or {}).get("lon")
+            addr_info = self._reverse_geocode(lat, lon) if (lat is not None and lon is not None) else {"address": prop.get("address"), "embedUrl": None}
+
+            # Detect what the user cares about; if none explicitly mentioned, fetch both
+            uq = user_query.lower()
+            wants_schools = any(w in uq for w in ["school", "schools", "education", "district"]) 
+            wants_restaurants = any(w in uq for w in ["restaurant", "food", "dining", "eat", "coffee", "cafe"]) 
+            if not (wants_schools or wants_restaurants):
+                wants_schools = wants_restaurants = True
+
+            # If no lat/lon, try forward geocoding from address
+            if (lat is None or lon is None) and prop.get("address"):
+                ge = self._geocode_address(prop.get("address"))
+                lat, lon = ge.get("lat"), ge.get("lon")
+
+            schools = self._nearby_places(lat, lon, "school", radius=4000, min_rating=4.0, max_results=5) if wants_schools else []
+            restaurants = self._nearby_places(lat, lon, "restaurant", radius=3000, min_rating=4.2, max_results=5) if wants_restaurants else []
+
+            enriched.append({
+                **prop,
+                "location": {
+                    "lat": lat,
+                    "lon": lon,
+                    "address": addr_info.get("address") or prop.get("address"),
+                    "embedUrl": addr_info.get("embedUrl")
+                },
+                "nearby": {
+                    "top_schools": schools,
+                    "top_restaurants": restaurants
+                }
+            })
+
+        state["search_results"] = enriched
         return state
     
     def market_search_node(self, state: RealEstateAgentState) -> RealEstateAgentState:
@@ -597,6 +749,24 @@ Be professional but approachable, like a knowledgeable real estate expert who ha
                     formatted_response += "• Consulting with a local real estate agent\n"
                     formatted_response += "• Looking at MLS data for comparable properties\n"
         
+        elif next_action == "location_context" and search_results:
+            lines = [f"Here's what I found around these properties:"]
+            for i, prop in enumerate(search_results[:3], 1):
+                loc = prop.get("location", {})
+                nearby = prop.get("nearby", {})
+                lines.append(f"\n{i}. {prop.get('name', 'Property')} — {loc.get('address', 'Address unavailable')}")
+                schools = nearby.get("top_schools", [])
+                restaurants = nearby.get("top_restaurants", [])
+                if schools:
+                    top = ", ".join([f"{s['name']} ({s['rating']}⭐, {s.get('distance_km')} km)" for s in schools[:3]])
+                    lines.append(f"   • Nearby schools: {top}")
+                if restaurants:
+                    top = ", ".join([f"{r['name']} ({r['rating']}⭐, {r.get('distance_km')} km)" for r in restaurants[:3]])
+                    lines.append(f"   • Restaurants: {top}")
+                if loc.get("embedUrl"):
+                    lines.append(f"   • Map: {loc['embedUrl']}")
+            formatted_response = "\n".join(lines)
+
         elif search_results and search_results[0].get("type") == "chat_response":
             formatted_response = search_results[0]["content"]
         
@@ -610,7 +780,7 @@ Be professional but approachable, like a knowledgeable real estate expert who ha
         
         return state
     
-    def route_decision(self, state: RealEstateAgentState) -> Literal["property_search", "market_search", "general_chat"]:
+    def route_decision(self, state: RealEstateAgentState) -> Literal["property_search", "market_search", "location_context", "general_chat"]:
         """Route to appropriate tool based on user's message"""
         next_action = state.get("next_action", "general_chat")
         logger.info(f"Routing to: {next_action}")
@@ -624,6 +794,7 @@ Be professional but approachable, like a knowledgeable real estate expert who ha
             builder.add_node("analyze_intent", self.analyze_user_intent)
             builder.add_node("property_search", self.property_search_node)
             builder.add_node("market_search", self.market_search_node)
+            builder.add_node("location_context", self.location_context_node)
             builder.add_node("general_chat", self.general_chat_node)
             builder.add_node("format_response", self.format_response_node)
             
@@ -634,11 +805,13 @@ Be professional but approachable, like a knowledgeable real estate expert who ha
                 {
                     "property_search": "property_search",
                     "market_search": "market_search", 
+                    "location_context": "location_context",
                     "general_chat": "general_chat"
                 }
             )
             builder.add_edge("property_search", "format_response")
             builder.add_edge("market_search", "format_response")
+            builder.add_edge("location_context", "format_response")
             builder.add_edge("general_chat", "format_response")
             builder.add_edge("format_response", END)
             

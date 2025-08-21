@@ -23,3 +23,7 @@ Couchbase Capella Data Structure:
 - Bucket: profiles
 - Scope: buyers
 - Collection: 2025
+
+Google Maps API: 
+Access up to 10K calls per SKU at no cost per month with Google Maps Platform APIs.
+
