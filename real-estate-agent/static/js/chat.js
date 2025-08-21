@@ -59,9 +59,9 @@ class ChatApp {
                 infoDiv.innerHTML = `
                     <div class="info-header"><strong>Real Estate Agent Active</strong></div>
                     <div class="info-details">
-                        <div><strong>Property Search:</strong> Couchbase vector search for dream properties</div>
-                        <div><strong>Market Research:</strong> Tavily web search for current information</div>
-                        <div><strong>Expert Advice:</strong> Bedrock LLM for real estate guidance</div>
+                        <div><strong>Property Search:</strong> Vector search for dream properties</div>
+                        <div><strong>Market Research:</strong> Web search for current information</div>
+                        <div><strong>Expert Advice:</strong> LLM for real estate guidance</div>
                     </div>
                 `;
                 this.chatMessages.appendChild(infoDiv);
