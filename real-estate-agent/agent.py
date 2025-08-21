@@ -758,10 +758,18 @@ Be professional but approachable, like a knowledgeable real estate expert who ha
                 schools = nearby.get("top_schools", [])
                 restaurants = nearby.get("top_restaurants", [])
                 if schools:
-                    top = ", ".join([f"{s['name']} ({s['rating']}⭐, {s.get('distance_km')} km)" for s in schools[:3]])
+                    school_strs = []
+                    for s in schools[:3]:
+                        dist_str = f", {s.get('distance_km')} km" if s.get('distance_km') is not None else ""
+                        school_strs.append(f"{s['name']} ({s['rating']}⭐{dist_str})")
+                    top = ", ".join(school_strs)
                     lines.append(f"   • Nearby schools: {top}")
                 if restaurants:
-                    top = ", ".join([f"{r['name']} ({r['rating']}⭐, {r.get('distance_km')} km)" for r in restaurants[:3]])
+                    restaurant_strs = []
+                    for r in restaurants[:3]:
+                        dist_str = f", {r.get('distance_km')} km" if r.get('distance_km') is not None else ""
+                        restaurant_strs.append(f"{r['name']} ({r['rating']}⭐{dist_str})")
+                    top = ", ".join(restaurant_strs)
                     lines.append(f"   • Restaurants: {top}")
                 if loc.get("embedUrl"):
                     lines.append(f"   • Map: {loc['embedUrl']}")
