@@ -435,6 +435,12 @@ Enhanced Query:"""
         for prop in properties[:3]:
             lat = (prop.get("geo") or {}).get("lat")
             lon = (prop.get("geo") or {}).get("lon")
+
+            # If no lat/lon, try forward geocoding from address
+            if (lat is None or lon is None) and prop.get("address"):
+                ge = self._geocode_address(prop.get("address"))
+                lat, lon = ge.get("lat"), ge.get("lon")
+
             addr_info = self._reverse_geocode(lat, lon) if (lat is not None and lon is not None) else {"address": prop.get("address"), "embedUrl": None}
 
             # Detect what the user cares about; if none explicitly mentioned, fetch both
@@ -443,11 +449,6 @@ Enhanced Query:"""
             wants_restaurants = any(w in uq for w in ["restaurant", "food", "dining", "eat", "coffee", "cafe"]) 
             if not (wants_schools or wants_restaurants):
                 wants_schools = wants_restaurants = True
-
-            # If no lat/lon, try forward geocoding from address
-            if (lat is None or lon is None) and prop.get("address"):
-                ge = self._geocode_address(prop.get("address"))
-                lat, lon = ge.get("lat"), ge.get("lon")
 
             schools = self._nearby_places(lat, lon, "school", radius=4000, min_rating=4.0, max_results=5) if wants_schools else []
             restaurants = self._nearby_places(lat, lon, "restaurant", radius=3000, min_rating=4.2, max_results=5) if wants_restaurants else []
