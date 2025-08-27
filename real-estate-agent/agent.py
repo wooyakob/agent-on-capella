@@ -17,6 +17,7 @@ from langchain_tavily import TavilySearch
 from couchbase.auth import PasswordAuthenticator
 from couchbase.cluster import Cluster
 from couchbase.options import ClusterOptions
+from couchbase.options import QueryOptions
 
 from dotenv import load_dotenv
 import os
@@ -59,8 +60,10 @@ class LangGraphRealEstateAgent:
 
             auth = PasswordAuthenticator(os.getenv("CB_USERNAME"), os.getenv("CB_PASSWORD"))
             options = ClusterOptions(auth)
-            cluster = Cluster(os.getenv("CB_HOSTNAME"), options)
+            connstr = os.getenv("CB_HOSTNAME")
+            cluster = Cluster(connstr, options)
             cluster.wait_until_ready(timedelta(seconds=5))
+            self.cluster = cluster
             
             BUCKET = os.getenv("CB_BUCKET", "properties")
             SCOPE = os.getenv("CB_SCOPE", "2025-listings")
@@ -113,6 +116,20 @@ class LangGraphRealEstateAgent:
         except Exception as e:
             logger.error(f"Couchbase search error: {e}")
             return []
+
+    def _parse_price(self, price_val: Any) -> float:
+        """Attempt to parse price into a float (USD). Handles numbers and strings like "$1,234,567".
+        Returns float('inf') if unparseable so it's filtered out by max budget.
+        """
+        try:
+            if isinstance(price_val, (int, float)):
+                return float(price_val)
+            if isinstance(price_val, str):
+                cleaned = price_val.replace('$', '').replace(',', '').strip()
+                return float(cleaned)
+        except Exception:
+            pass
+        return float('inf')
 
     # --- Google Maps helper functions ---
     def _reverse_geocode(self, lat: float, lon: float) -> Dict[str, Any]:
@@ -409,6 +426,16 @@ Enhanced Query:"""
             logger.info("No results with enhanced query, trying original...")
             properties = self.couchbase_property_search(user_query, k=5)
         
+        # Apply strict budget filtering if present in buyer profile
+        try:
+            budget_max = (buyer_profile.get('budget') or {}).get('max')
+            if budget_max:
+                budget_max = float(budget_max)
+                filtered = [p for p in properties if self._parse_price(p.get('price')) <= budget_max]
+                properties = filtered
+        except Exception as e:
+            logger.debug(f"Budget filtering skipped due to error: {e}")
+
         state["search_results"] = properties
         # Persist for follow-up location questions like "Is this house near good schools?"
         self.last_properties = properties
@@ -690,6 +717,11 @@ Be conversational and helpful, like a real estate agent would be."""
                     formatted_response += f"📝 {prop['description'][:200]}...\n"
                     formatted_response += f"🎯 Similarity: {prop['similarity_score']}\n\n"
         
+        elif next_action == "property_search" and not search_results:
+            buyer_profile = state.get("buyer_profile", {})
+            max_budget = (buyer_profile.get('budget') or {}).get('max')
+            budget_text = f" under ${max_budget:,.0f}" if max_budget else ""
+            formatted_response = f"I didn't find any properties{budget_text} that match right now. Would you like me to expand the search area or adjust other criteria?"
         elif next_action == "market_search" and search_results:
             market_data = []
             for item in search_results[:5]:

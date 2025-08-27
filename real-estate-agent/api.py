@@ -15,11 +15,16 @@ from agent import LangGraphRealEstateAgent
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY")
+if not app.secret_key:
+    logger.warning("SECRET_KEY is not set. Sessions may be insecure in production.")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 agents = {}
+# In-memory per-session saved/hidden properties
+saved_properties = {}
+hidden_properties = {}
 
 @app.route('/')
 def index():
@@ -98,12 +103,23 @@ def chat():
             if buyer_profile:
                 logger.info(f"Using profile for {buyer_name}: {buyer_profile}")
         
+        # Snapshot previous properties to detect if this turn produced new results
+        prev_props = getattr(agent, 'last_properties', []) or []
+        prev_keyset = {(p.get('id') or p.get('address') or p.get('name') or str(idx)) for idx, p in enumerate(prev_props)}
+
         response = agent.chat(user_message, buyer_profile)
+
+        # Only surface properties if they changed this turn
+        current_props = getattr(agent, 'last_properties', []) or []
+        curr_keyset = {(p.get('id') or p.get('address') or p.get('name') or str(idx)) for idx, p in enumerate(current_props)}
+        changed = (curr_keyset and curr_keyset != prev_keyset)
+        properties = current_props[:3] if changed else []
         
         return jsonify({
             'success': True,
             'response': response,
-            'buyer_profile': buyer_profile
+            'buyer_profile': buyer_profile,
+            'properties': properties
         })
         
     except Exception as e:
@@ -113,6 +129,81 @@ def chat():
             'success': False,
             'error': 'An error occurred while processing your message'
         }), 500
+
+@app.route('/api/buyers', methods=['GET'])
+def list_buyers():
+    """Return available buyer profiles for autocomplete."""
+    try:
+        from pathlib import Path
+        profiles_path = Path(os.path.dirname(os.path.dirname(__file__))) / 'data-models' / 'profiles' / 'buyers.json'
+        buyers = []
+        if profiles_path.exists():
+            import json
+            with open(profiles_path, 'r') as f:
+                data = json.load(f)
+                # Normalize minimal fields for UI
+                for p in data:
+                    buyers.append({
+                        'buyer': p.get('buyer'),
+                        'budget': p.get('budget'),
+                        'bedrooms': p.get('bedrooms'),
+                        'bathrooms': p.get('bathrooms'),
+                        'location': p.get('location')
+                    })
+        return jsonify({'success': True, 'buyers': buyers})
+    except Exception as e:
+        logger.error(f"Failed to load buyers: {e}")
+        return jsonify({'success': False, 'buyers': []}), 500
+
+@app.route('/api/save_property', methods=['POST'])
+def save_property():
+    try:
+        data = request.get_json() or {}
+        prop = data.get('property') or {}
+        session_id = session.get('session_id')
+        if not session_id:
+            return jsonify({'success': False, 'error': 'Session not found'}), 400
+        key = prop.get('id') or f"{prop.get('address','')}|{prop.get('name','')}"
+        if not key.strip():
+            return jsonify({'success': False, 'error': 'Invalid property payload'}), 400
+        saved_properties.setdefault(session_id, [])
+        # Prevent duplicates by key
+        if not any((p.get('id') or f"{p.get('address','')}|{p.get('name','')}") == key for p in saved_properties[session_id]):
+            saved_properties[session_id].append(prop)
+        return jsonify({'success': True, 'saved_count': len(saved_properties[session_id])})
+    except Exception as e:
+        logger.error(f"Save property error: {e}")
+        return jsonify({'success': False, 'error': 'Failed to save property'}), 500
+
+@app.route('/api/hide_property', methods=['POST'])
+def hide_property():
+    try:
+        data = request.get_json() or {}
+        prop = data.get('property') or {}
+        session_id = session.get('session_id')
+        if not session_id:
+            return jsonify({'success': False, 'error': 'Session not found'}), 400
+        key = prop.get('id') or f"{prop.get('address','')}|{prop.get('name','')}"
+        if not key.strip():
+            return jsonify({'success': False, 'error': 'Invalid property payload'}), 400
+        hidden_properties.setdefault(session_id, set())
+        hidden_properties[session_id].add(key)
+        return jsonify({'success': True, 'hidden_count': len(hidden_properties[session_id])})
+    except Exception as e:
+        logger.error(f"Hide property error: {e}")
+        return jsonify({'success': False, 'error': 'Failed to hide property'}), 500
+
+@app.route('/api/saved_properties', methods=['GET'])
+def get_saved_properties():
+    try:
+        session_id = session.get('session_id')
+        if not session_id:
+            return jsonify({'success': False, 'error': 'Session not found'}), 400
+        props = saved_properties.get(session_id, [])
+        return jsonify({'success': True, 'properties': props})
+    except Exception as e:
+        logger.error(f"Get saved properties error: {e}")
+        return jsonify({'success': False, 'error': 'Failed to load saved properties'}), 500
 
 @app.route('/api/search_properties', methods=['POST'])
 def search_properties():
