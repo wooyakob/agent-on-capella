@@ -232,6 +232,7 @@ class ChatApp {
                         <div><strong>Property Search:</strong> Vector search for dream properties</div>
                         <div><strong>Market Research:</strong> Web search for current information</div>
                         <div><strong>Expert Advice:</strong> LLM for real estate guidance</div>
+                        <div><strong>Location Context:</strong> Nearby schools and restaurants around matched properties</div>
                     </div>
                 `;
                 this.chatMessages.appendChild(infoDiv);
