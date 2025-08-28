@@ -1,0 +1,3 @@
+- update prepop steps to show different routes, functionality: maps (nearby schools, restaurants), prop vector search, market analysis, general advice. 
+- update Real Estate Agent Active section, add maps functionality here to make user aware
+- 
