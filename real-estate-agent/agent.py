@@ -127,7 +127,7 @@ class LangGraphRealEstateAgent:
             if isinstance(price_val, str):
                 cleaned = price_val.replace('$', '').replace(',', '').strip()
                 return float(cleaned)
-        except Exception:
+        except (ValueError, TypeError):
             pass
         return float('inf')
 
