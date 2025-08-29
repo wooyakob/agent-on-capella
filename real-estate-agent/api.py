@@ -21,6 +21,16 @@ from agent import LangGraphRealEstateAgent
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY")
+# Make sessions persistent and increase lifetime to reduce timeouts
+app.permanent_session_lifetime = timedelta(days=7)
+
+@app.before_request
+def _keep_session_alive():
+    # Ensure the session remains permanent across requests
+    try:
+        session.permanent = True
+    except Exception:
+        pass
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -76,6 +86,7 @@ def start_session():
     try:
         session_id = str(uuid.uuid4())
         session['session_id'] = session_id
+        session.permanent = True
         
         logger.info(f"Starting new session: {session_id}")
         
@@ -121,12 +132,13 @@ def chat():
         logger.info(f"Chat request - Session ID: {session_id}")
         logger.info(f"Available agents: {list(agents.keys())}")
         
-        if not session_id or session_id not in agents:
-            logger.warning(f"Session not found: {session_id}")
-            return jsonify({
-                'success': False,
-                'error': 'Session not found. Please refresh the page.'
-            }), 400
+        if not session_id:
+            logger.warning("No session_id in session cookie")
+            return jsonify({'success': False, 'error': 'No active session. Please refresh the page.'}), 400
+        if session_id not in agents:
+            # Recreate agent for existing session to avoid timeouts after server restarts
+            logger.info(f"Recreating agent for session: {session_id}")
+            agents[session_id] = LangGraphRealEstateAgent()
         
         if not user_message:
             return jsonify({
@@ -435,11 +447,11 @@ def search_properties():
         num_results = data.get('num_results', 5)
         session_id = session.get('session_id')
         
-        if not session_id or session_id not in agents:
-            return jsonify({
-                'success': False,
-                'error': 'Session not found. Please refresh the page.'
-            }), 400
+        if not session_id:
+            return jsonify({'success': False, 'error': 'Session not found. Please refresh the page.'}), 400
+        if session_id not in agents:
+            logger.info(f"Recreating agent for session: {session_id}")
+            agents[session_id] = LangGraphRealEstateAgent()
         
         if not query:
             return jsonify({
@@ -484,17 +496,11 @@ def clear_history():
         
         if not session_id:
             logger.warning("No session_id found in session")
-            return jsonify({
-                'success': False,
-                'error': 'No active session found. Please refresh the page.'
-            }), 400
-            
+            return jsonify({'success': False, 'error': 'No active session found. Please refresh the page.'}), 400
+        
         if session_id not in agents:
-            logger.warning(f"Session {session_id} not found in agents")
-            return jsonify({
-                'success': False,
-                'error': 'Session expired. Please refresh the page.'
-            }), 400
+            logger.info(f"Recreating agent for session: {session_id}")
+            agents[session_id] = LangGraphRealEstateAgent()
         
         agent = agents[session_id]
         agent.clear_conversation_history()

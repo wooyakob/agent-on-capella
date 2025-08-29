@@ -223,8 +223,10 @@ class LangGraphRealEstateAgent:
             logger.debug(f"Nearby places error: {e}")
             return []
     
-    def tavily_market_search(self, query: str) -> List[Dict[str, Any]]:
-        """Search market information using Tavily"""
+    def tavily_market_search(self, query: str, location: str | None = None) -> List[Dict[str, Any]]:
+        """Search market information using Tavily.
+        If a location is provided (e.g., from buyer profile), prefer it in search variations and fallbacks.
+        """
         try:
             optimization_prompt = f"""
             Create optimized search queries for finding real estate market information.
@@ -245,18 +247,49 @@ class LangGraphRealEstateAgent:
             logger.info(f"Generated {len(optimized_queries)} search queries")
             
             all_results = []
+
+            # Determine if the user asked about a specific property type (e.g., condos)
+            ql = (query or "").lower()
+            wants_condo = any(k in ql for k in ["condo", "condos", "condominium", "condominiums"]) 
+            wants_townhome = any(k in ql for k in ["townhome", "town house", "townhouse"]) 
+            wants_single_family = any(k in ql for k in ["single family", "sfh", "detached"]) 
+
+            def add_type_variants(base: str) -> List[str]:
+                variants = [base]
+                if wants_condo:
+                    variants.append(f"condo {base}")
+                    variants.append(f"condos {base}")
+                if wants_townhome:
+                    variants.append(f"townhome {base}")
+                    variants.append(f"townhouse {base}")
+                if wants_single_family:
+                    variants.append(f"single family {base}")
+                return variants
             
             for i, opt_query in enumerate(optimized_queries[:3]): 
                 try:
                     clean_query = opt_query.strip().lstrip('123456789.-').strip()
                     logger.info(f"Searching with query: {clean_query}")
                     
-                    search_variations = [
-                        clean_query,
-                        f"San Diego {clean_query}",
-                        f"{clean_query} 2025",
-                        f"current {clean_query}"
-                    ]
+                    # Prefer profile location if provided; otherwise fall back to generic variations
+                    loc = (location or '').strip()
+                    if loc:
+                        base_vars = [
+                            clean_query,
+                            f"{loc} {clean_query}",
+                            f"{clean_query} 2025",
+                            f"current {clean_query}"
+                        ]
+                    else:
+                        base_vars = [
+                            clean_query,
+                            f"{clean_query} 2025",
+                            f"current {clean_query}"
+                        ]
+                    # Expand with property-type variants if applicable
+                    search_variations = []
+                    for b in base_vars:
+                        search_variations.extend(add_type_variants(b))
                     
                     for search_query in search_variations:
                         try:
@@ -294,14 +327,44 @@ class LangGraphRealEstateAgent:
                 else:
                     unique_results.append(result)
             
-            logger.info(f"Found {len(unique_results)} unique market information items")
-            return unique_results[:3]
+            # Filter out irrelevant domains and non-housing/market items
+            blacklist_domains = [
+                "att.com", "forums.att.com", "communityforums.at&t.com", "facebook.com", "twitter.com",
+                "pinterest.com", "reddit.com", "youtube.com"
+            ]
+            require_keywords = ["real estate", "housing", "market", "price", "condo", "condos", "homes"]
+
+            def domain_of(url: str) -> str:
+                try:
+                    from urllib.parse import urlparse
+                    return (urlparse(url).netloc or "").lower()
+                except Exception:
+                    return ""
+
+            def relevant(item: Dict[str, Any]) -> bool:
+                title = (item.get('title') or '').lower()
+                content = (item.get('content') or '').lower()
+                url = (item.get('url') or '')
+                dom = domain_of(url)
+                if any(bd in dom for bd in blacklist_domains):
+                    return False
+                text = f"{title} {content}"
+                return any(k in text for k in require_keywords)
+
+            filtered = [r for r in unique_results if relevant(r)]
+            logger.info(f"Filtered market info: {len(filtered)} relevant out of {len(unique_results)} unique")
+            return filtered[:5]
             
         except Exception as e:
             logger.error(f"Market search error: {e}")
             try:
                 logger.info("Trying fallback search...")
-                fallback_results = self.tavily_search.invoke("San Diego real estate market trends prices")
+                # Fallback prefers provided location if any
+                loc = (location or '').strip()
+                fb_query = (
+                    f"{loc} real estate market trends prices" if loc else "real estate market trends prices"
+                )
+                fallback_results = self.tavily_search.invoke(fb_query)
                 
                 if isinstance(fallback_results, dict) and 'results' in fallback_results:
                     return fallback_results['results'] or []
@@ -500,6 +563,40 @@ Enhanced Query:"""
         properties = state.get("search_results", [])
         buyer_profile = state.get("buyer_profile", {})
 
+        # Detect what the user cares about; if none explicitly mentioned, fetch both
+        uq = user_query.lower()
+        wants_schools = any(w in uq for w in ["school", "schools", "education", "district"]) 
+        wants_restaurants = any(w in uq for w in ["restaurant", "food", "dining", "eat", "coffee", "cafe"]) 
+        if not (wants_schools or wants_restaurants):
+            wants_schools = wants_restaurants = True
+
+        # If a buyer profile location is available, answer relative to that location directly (no properties)
+        try:
+            loc_pref = (buyer_profile or {}).get('location')
+            if loc_pref:
+                geo_pref = self._geocode_address(loc_pref)
+                blat, blon = geo_pref.get('lat'), geo_pref.get('lon')
+                if blat is not None and blon is not None:
+                    addr_info = self._reverse_geocode(blat, blon) or {}
+                    schools = self._nearby_places(blat, blon, "school", radius=4000, min_rating=4.0, max_results=5) if wants_schools else []
+                    restaurants = self._nearby_places(blat, blon, "restaurant", radius=3000, min_rating=4.2, max_results=5) if wants_restaurants else []
+                    state["search_results"] = [{
+                        "location": {
+                            "lat": blat,
+                            "lon": blon,
+                            "address": addr_info.get("address") or loc_pref,
+                            "mapsLink": addr_info.get("mapsLink")
+                        },
+                        "nearby": {
+                            "top_schools": schools,
+                            "top_restaurants": restaurants
+                        }
+                    }]
+                    return state
+        except Exception:
+            # Fall back to property-based approach if profile-centric fails
+            pass
+
         # If we don't have properties yet, try to find some broadly
         if not properties:
             # Prefer last known properties from a previous result set
@@ -603,13 +700,6 @@ Enhanced Query:"""
                 maps_link = f"https://www.google.com/maps/search/?api=1&query={quote_plus(addr)}" if addr else None
                 addr_info = {"address": addr, "mapsLink": maps_link}
 
-            # Detect what the user cares about; if none explicitly mentioned, fetch both
-            uq = user_query.lower()
-            wants_schools = any(w in uq for w in ["school", "schools", "education", "district"]) 
-            wants_restaurants = any(w in uq for w in ["restaurant", "food", "dining", "eat", "coffee", "cafe"]) 
-            if not (wants_schools or wants_restaurants):
-                wants_schools = wants_restaurants = True
-
             schools = self._nearby_places(lat, lon, "school", radius=4000, min_rating=4.0, max_results=5) if wants_schools else []
             restaurants = self._nearby_places(lat, lon, "restaurant", radius=3000, min_rating=4.2, max_results=5) if wants_restaurants else []
 
@@ -637,100 +727,13 @@ Enhanced Query:"""
         logger.info("Searching market information using Tavily...")
         
         user_query = state.get("user_query", "")
-        
-        search_optimization_prompt = """You are helping create optimal web search queries for real estate market information.
+        buyer_profile = state.get("buyer_profile", {}) or {}
+        location = (buyer_profile.get("location") or "").strip() or None
 
-User's Question: "{query}"
-
-Create 3 different focused search queries that would find current, relevant real estate market information:
-1. A specific query targeting the exact question
-2. A broader market trends query 
-3. A pricing/statistics focused query
-
-Include terms like "2025", "current", "average price", "market data", and specific locations.
-
-Query 1:
-Query 2:  
-Query 3:"""
-
-        search_queries = []
-        
-        try:
-            optimized_response = self.llm.invoke([
-                {"role": "user", "content": search_optimization_prompt.format(query=user_query)}
-            ])
-            
-            response_lines = optimized_response.content.strip().split('\n')
-            for line in response_lines:
-                if line.strip() and not line.startswith('Query'):
-                    search_queries.append(line.strip())
-            
-            logger.info(f"Generated {len(search_queries)} search queries")
-            
-        except Exception as e:
-            logger.error(f"Search optimization error: {e}")
-           
-            search_queries = [
-                f"{user_query} 2025",
-                f"San Diego real estate average prices 2025",
-                f"current real estate market trends San Diego"
-            ]
-        
-        all_market_info = []
-        
-        for query in search_queries[:3]: 
-            try:
-                logger.info(f"Searching with query: {query}")
-                results = self.tavily_search.invoke(query)
-                
-                # Handle different response formats from tavily_search
-                if isinstance(results, dict) and 'results' in results:
-                    actual_results = results['results']
-                elif isinstance(results, list):
-                    actual_results = results
-                else:
-                    actual_results = [results] if results else []
-                
-                if actual_results:
-                    all_market_info.extend(actual_results)
-                    logger.info(f"Found {len(actual_results)} results for query: {query}")
-            except Exception as e:
-                logger.error(f"Error searching with query '{query}': {e}")
-                continue
-        
-        unique_results = []
-        seen_urls = set()
-        seen_titles = set()
-        
-        logger.info(f"Processing {len(all_market_info)} total market info items")
-        for i, item in enumerate(all_market_info):
-            if not isinstance(item, dict):
-                logger.debug(f"Item {i}: Skipping non-dict item: {type(item)} - {str(item)[:100]}")
-                continue
-            
-            logger.debug(f"Item {i}: {item.keys()}")
-            url = item.get('url', '')
-            title = item.get('title', '')
-            
-            if not url and not title:
-                logger.debug(f"Item {i}: No URL or title, adding anyway")
-                unique_results.append(item)
-            elif url and url not in seen_urls:
-                unique_results.append(item)
-                seen_urls.add(url)
-                if title:
-                    seen_titles.add(title)
-                logger.debug(f"Item {i}: Added with URL: {url[:50]}...")
-            elif title and title not in seen_titles:
-                unique_results.append(item)
-                seen_titles.add(title)
-                logger.debug(f"Item {i}: Added with title: {title[:50]}...")
-            else:
-                logger.debug(f"Item {i}: Duplicate - URL: {url[:30]}... Title: {title[:30]}...")
-        
-        state["search_results"] = unique_results[:3]
-        logger.info(f"Found {len(unique_results)} unique market information items")
-        
+        # Delegate to the helper that already handles location-aware variations and fallbacks
+        market_items = self.tavily_market_search(user_query, location)
+        state["search_results"] = market_items
+        logger.info(f"Market search returned {len(market_items)} items (location={location})")
         return state
     
     def general_chat_node(self, state: RealEstateAgentState) -> RealEstateAgentState:
@@ -918,30 +921,54 @@ Be professional but approachable, like a knowledgeable real estate expert who ha
                     formatted_response += "• Looking at MLS data for comparable properties\n"
         
         elif next_action == "location_context" and search_results:
-            lines = [f"Here's what I found around these properties:"]
-            for i, prop in enumerate(search_results[:3], 1):
-                loc = prop.get("location", {})
-                nearby = prop.get("nearby", {})
-                lines.append(f"\n{i}. {prop.get('name', 'Property')} — {loc.get('address', 'Address unavailable')}")
+            # If the result is profile-centric (single dict with nearby lists), present only schools/restaurants
+            if isinstance(search_results, list) and len(search_results) == 1 and isinstance(search_results[0], dict) and "nearby" in search_results[0]:
+                loc = search_results[0].get("location", {})
+                nearby = search_results[0].get("nearby", {})
                 schools = nearby.get("top_schools", [])
                 restaurants = nearby.get("top_restaurants", [])
+                lines = ["Here are top nearby options:"]
                 if schools:
-                    school_strs = []
-                    for s in schools[:3]:
-                        dist_str = f", {s.get('distance_km')} km" if s.get('distance_km') is not None else ""
-                        school_strs.append(f"{s['name']} ({s['rating']}⭐{dist_str})")
-                    top = ", ".join(school_strs)
-                    lines.append(f"   • Nearby schools: {top}")
+                    lines.append("\nTop Schools:")
+                    for s in schools[:5]:
+                        lines.append(f"- {s.get('name')} ({s.get('rating','?')}⭐, {s.get('distance_km','?')} km)")
                 if restaurants:
-                    restaurant_strs = []
-                    for r in restaurants[:3]:
-                        dist_str = f", {r.get('distance_km')} km" if r.get('distance_km') is not None else ""
-                        restaurant_strs.append(f"{r['name']} ({r['rating']}⭐{dist_str})")
-                    top = ", ".join(restaurant_strs)
-                    lines.append(f"   • Restaurants: {top}")
-                if loc.get("mapsLink"):
-                    lines.append(f"   • Map: {loc['mapsLink']}")
-            formatted_response = "\n".join(lines)
+                    lines.append("\nTop Restaurants:")
+                    for r in restaurants[:5]:
+                        lines.append(f"- {r.get('name')} ({r.get('rating','?')}⭐, {r.get('distance_km','?')} km)")
+                if loc.get('mapsLink'):
+                    lines.append(f"\nMap: {loc.get('mapsLink')}")
+                formatted_response = "\n".join(lines)
+            else:
+                # Legacy property-enriched results: omit property names/addresses per requirement and only list nearby places
+                lines = ["Here are nearby options:"]
+                agg_schools = []
+                agg_restaurants = []
+                for prop in search_results[:3]:
+                    nb = (prop.get('nearby') or {})
+                    agg_schools.extend(nb.get('top_schools') or [])
+                    agg_restaurants.extend(nb.get('top_restaurants') or [])
+                # Deduplicate by name
+                def dedupe(items):
+                    seen = set()
+                    out = []
+                    for it in items:
+                        n = it.get('name')
+                        if n and n not in seen:
+                            seen.add(n)
+                            out.append(it)
+                    return out
+                agg_schools = dedupe(agg_schools)[:5]
+                agg_restaurants = dedupe(agg_restaurants)[:5]
+                if agg_schools:
+                    lines.append("\nTop Schools:")
+                    for s in agg_schools:
+                        lines.append(f"- {s.get('name')} ({s.get('rating','?')}⭐, {s.get('distance_km','?')} km)")
+                if agg_restaurants:
+                    lines.append("\nTop Restaurants:")
+                    for r in agg_restaurants:
+                        lines.append(f"- {r.get('name')} ({r.get('rating','?')}⭐, {r.get('distance_km','?')} km)")
+                formatted_response = "\n".join(lines)
 
         elif search_results and search_results[0].get("type") == "chat_response":
             formatted_response = search_results[0]["content"]
