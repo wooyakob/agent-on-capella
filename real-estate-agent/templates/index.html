@@ -8,10 +8,14 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
+    <div class="top-nav">
+        <a href="/">Home</a>
+        <a href="/saved">Saved Properties</a>
+    </div>
     <div class="chat-container">
         <div class="chat-header">
             <h1>Real Estate Agent</h1>
-            <p>Find your dream house suited to your preferences, research the market and local house prices, and get advice on buying your perfect home</p>
+            <p>Find your dream house suited to your preferences, research the market and local house prices, nearby schools and restaurants and get advice on buying your perfect home</p>
         </div>
         
         <div class="chat-messages" id="chatMessages">
@@ -42,10 +46,12 @@
         </div>
         
         <div class="quick-prompts" id="quickPrompts" style="padding: 10px 20px; background: #fff; border-top: 1px solid #f3f4f6; display: flex; gap: 8px; flex-wrap: wrap;">
-            <button type="button" class="quick-prompt" data-text="I'm looking for a 3-bedroom house under $900k near good schools">3bd under $900k near schools</button>
-            <button type="button" class="quick-prompt" data-text="What are the current market trends for condos in my area?">Market trends: SD condos</button>
-            <button type="button" class="quick-prompt" data-text="Find beachfront properties with 2+ bedrooms and parking">Beachfront with parking</button>
-            <button type="button" class="quick-prompt" data-text="Can you explain the steps to get pre-approved for a mortgage?">Pre-approval steps</button>
+            <button type="button" class="quick-prompt" data-text="I'm looking for a 3-bedroom house under $900k">3bd under $900k</button>
+            <button type="button" class="quick-prompt" data-text="What are the current market trends for condos in my area?">Housing market trends</button>
+            <button type="button" class="quick-prompt" data-text="Find beachfront properties">Beachfront Properties</button>
+            <button type="button" class="quick-prompt" data-text="Can you explain the steps to get pre-approved for a mortgage?">Mortgage Approval</button>
+            <button type="button" class="quick-prompt" data-text="Can you share good schools in my area?">Good Schools</button>
+            <button type="button" class="quick-prompt" data-text="Can you share good restaurants in my area?">Good Restaurants</button>
         </div>
         
         <div class="chat-input-container">
@@ -70,10 +76,6 @@
             <div class="properties-panel-header">
                 <div class="properties-header-left">
                     <h2>Properties</h2>
-                    <div class="properties-tabs" role="tablist">
-                        <button id="tabMatches" class="tab-btn active" role="tab" aria-selected="true">Matches</button>
-                        <button id="tabSaved" class="tab-btn" role="tab" aria-selected="false">Saved</button>
-                    </div>
                 </div>
                 <div id="propertiesMeta" class="properties-meta"></div>
             </div>

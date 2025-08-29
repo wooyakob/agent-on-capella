@@ -134,8 +134,13 @@ class LangGraphRealEstateAgent:
     # --- Google Maps helper functions ---
     def _reverse_geocode(self, lat: float, lon: float) -> Dict[str, Any]:
         """Reverse geocode coordinates to human-readable address and embeddable map URL."""
-        if not self.gmaps_key or lat is None or lon is None:
-            return {"address": None, "embedUrl": None}
+        if lat is None or lon is None:
+            return {"address": None, "mapsLink": None}
+        # Always provide a safe maps link that doesn't expose API keys
+        safe_link = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
+        # If no server-side key, we can't reverse geocode the address but can still return a safe link
+        if not self.gmaps_key:
+            return {"address": None, "mapsLink": safe_link}
         try:
             url = f"https://maps.googleapis.com/maps/api/geocode/json?latlng={lat},{lon}&key={self.gmaps_key}"
             resp = requests.get(url, timeout=8)
@@ -143,11 +148,11 @@ class LangGraphRealEstateAgent:
                 data = resp.json()
                 if data.get("results"):
                     address = data["results"][0].get("formatted_address")
-                    embed = f"https://www.google.com/maps/embed/v1/place?key={self.gmaps_key}&q={quote_plus(address)}" if address else None
-                    return {"address": address, "embedUrl": embed}
+                    # Provide safe maps search link, not an embed URL with key
+                    return {"address": address, "mapsLink": safe_link}
         except Exception as e:
             logger.debug(f"Reverse geocode error: {e}")
-        return {"address": None, "embedUrl": None}
+        return {"address": None, "mapsLink": safe_link}
 
     def _geocode_address(self, address: str) -> Dict[str, Any]:
         """Forward geocode an address to lat/lon when geo is missing."""
@@ -193,7 +198,13 @@ class LangGraphRealEstateAgent:
                 for r in data.get("results", []):
                     rating = r.get("rating")
                     loc = (r.get("geometry", {}).get("location") or {})
+                    types = r.get("types", []) or []
                     dist_km = self._haversine_km(lat, lon, loc.get("lat"), loc.get("lng"))
+                    # Enforce strict type filtering to avoid gyms/centers appearing as schools, etc.
+                    if place_type == "school" and "school" not in types:
+                        continue
+                    if place_type == "restaurant" and "restaurant" not in types:
+                        continue
                     if rating is None or (min_rating is not None and rating < min_rating):
                         continue
                     results.append({
@@ -202,7 +213,7 @@ class LangGraphRealEstateAgent:
                         "user_ratings_total": r.get("user_ratings_total"),
                         "address": r.get("vicinity"),
                         "distance_km": round(dist_km, 2) if dist_km is not None else None,
-                        "types": r.get("types", []),
+                        "types": types,
                         "place_id": r.get("place_id")
                     })
             # sort by distance then rating desc
@@ -436,6 +447,45 @@ Enhanced Query:"""
         except Exception as e:
             logger.debug(f"Budget filtering skipped due to error: {e}")
 
+        # Prefer properties that match the buyer's preferred location in their address text.
+        try:
+            loc_pref = (buyer_profile or {}).get('location')
+            if loc_pref:
+                loc_lower = str(loc_pref).lower()
+                addr_matches = [p for p in properties if loc_lower in str(p.get('address', '')).lower()]
+                # If we found any address matches, prefer them and drop others
+                if addr_matches:
+                    properties = addr_matches
+        except Exception as e:
+            logger.debug(f"Location preference filtering skipped due to error: {e}")
+
+        # Fallback: filter by state if buyer location mentions a known state (e.g., CA) and geocoding is unavailable
+        try:
+            loc_pref = (buyer_profile or {}).get('location', '')
+            state_hint = None
+            # naive parse for two-letter state code present in location
+            for token in str(loc_pref).split():
+                if len(token) == 2 and token.isalpha():
+                    state_hint = token.upper()
+                    break
+            if not state_hint:
+                # quick mapping for common cities
+                city_to_state = {"san": "CA", "diego": "CA", "seattle": "WA", "bellevue": "WA"}
+                for t in city_to_state:
+                    if t in str(loc_pref).lower():
+                        state_hint = city_to_state[t]
+                        break
+            if state_hint:
+                def addr_state(addr: str):
+                    import re
+                    m = re.search(r",\s*([A-Z]{2})\s*\d{5}?", str(addr))
+                    return m.group(1) if m else None
+                filtered = [p for p in properties if addr_state(p.get('address')) == state_hint]
+                if filtered:
+                    properties = filtered
+        except Exception:
+            pass
+
         state["search_results"] = properties
         # Persist for follow-up location questions like "Is this house near good schools?"
         self.last_properties = properties
@@ -448,6 +498,7 @@ Enhanced Query:"""
         logger.info("Fetching location context (schools, restaurants) using Google Maps...")
         user_query = state.get("user_query", "")
         properties = state.get("search_results", [])
+        buyer_profile = state.get("buyer_profile", {})
 
         # If we don't have properties yet, try to find some broadly
         if not properties:
@@ -457,6 +508,82 @@ Enhanced Query:"""
             else:
                 fallback_props = self.couchbase_property_search(user_query, k=3)
                 properties = fallback_props
+
+        # Prefer properties in buyer's preferred location, if provided
+        try:
+            loc_pref = (buyer_profile or {}).get('location')
+            if loc_pref and properties:
+                loc_lower = str(loc_pref).lower()
+                addr_matches = [
+                    p for p in properties
+                    if loc_lower in str(p.get('address', '')).lower()
+                    or loc_lower in str((p.get('location') or {}).get('address', '')).lower()
+                ]
+                if addr_matches:
+                    properties = addr_matches
+            elif loc_pref and not properties and getattr(self, "last_properties", None):
+                loc_lower = str(loc_pref).lower()
+                lp = getattr(self, "last_properties", []) or []
+                addr_matches = [
+                    p for p in lp
+                    if loc_lower in str(p.get('address', '')).lower()
+                    or loc_lower in str((p.get('location') or {}).get('address', '')).lower()
+                ]
+                if addr_matches:
+                    properties = addr_matches
+        except Exception:
+            pass
+
+        # If buyer location is provided, attempt a radius filter (<= 50 km)
+        try:
+            loc_pref = (buyer_profile or {}).get('location')
+            if loc_pref:
+                # Geocode buyer preferred location
+                geo_pref = self._geocode_address(loc_pref)
+                blat, blon = geo_pref.get('lat'), geo_pref.get('lon')
+                if blat is not None and blon is not None:
+                    by_distance = []
+                    for p in properties:
+                        plat = (p.get('geo') or {}).get('lat')
+                        plon = (p.get('geo') or {}).get('lon')
+                        if (plat is None or plon is None) and p.get('address'):
+                            g = self._geocode_address(p.get('address'))
+                            plat, plon = g.get('lat'), g.get('lon')
+                        if plat is None or plon is None:
+                            # Keep if we cannot determine distance (be conservative)
+                            continue
+                        d = self._haversine_km(blat, blon, plat, plon)
+                        if d is not None and d <= 50:
+                            by_distance.append(p)
+                    if by_distance:
+                        properties = by_distance
+        except Exception:
+            pass
+
+        # Fallback: filter by state if city/geo filters didn't narrow and location contains a state hint
+        try:
+            loc_pref = (buyer_profile or {}).get('location', '')
+            state_hint = None
+            for token in str(loc_pref).split():
+                if len(token) == 2 and token.isalpha():
+                    state_hint = token.upper()
+                    break
+            if not state_hint:
+                city_to_state = {"san": "CA", "diego": "CA", "seattle": "WA", "bellevue": "WA"}
+                for t in city_to_state:
+                    if t in str(loc_pref).lower():
+                        state_hint = city_to_state[t]
+                        break
+            if state_hint:
+                def addr_state(addr: str):
+                    import re
+                    m = re.search(r",\s*([A-Z]{2})\s*\d{5}?", str(addr))
+                    return m.group(1) if m else None
+                filtered = [p for p in properties if addr_state(p.get('address')) == state_hint]
+                if filtered:
+                    properties = filtered
+        except Exception:
+            pass
 
         enriched = []
         for prop in properties[:3]:
@@ -468,7 +595,13 @@ Enhanced Query:"""
                 ge = self._geocode_address(prop.get("address"))
                 lat, lon = ge.get("lat"), ge.get("lon")
 
-            addr_info = self._reverse_geocode(lat, lon) if (lat is not None and lon is not None) else {"address": prop.get("address"), "embedUrl": None}
+            if (lat is not None and lon is not None):
+                addr_info = self._reverse_geocode(lat, lon)
+            else:
+                # Build a safe link from address if available
+                addr = prop.get("address")
+                maps_link = f"https://www.google.com/maps/search/?api=1&query={quote_plus(addr)}" if addr else None
+                addr_info = {"address": addr, "mapsLink": maps_link}
 
             # Detect what the user cares about; if none explicitly mentioned, fetch both
             uq = user_query.lower()
@@ -486,7 +619,7 @@ Enhanced Query:"""
                     "lat": lat,
                     "lon": lon,
                     "address": addr_info.get("address") or prop.get("address"),
-                    "embedUrl": addr_info.get("embedUrl")
+                    "mapsLink": addr_info.get("mapsLink")
                 },
                 "nearby": {
                     "top_schools": schools,
@@ -495,6 +628,8 @@ Enhanced Query:"""
             })
 
         state["search_results"] = enriched
+        # Persist enriched properties so API can surface updated list this turn
+        self.last_properties = enriched
         return state
     
     def market_search_node(self, state: RealEstateAgentState) -> RealEstateAgentState:
@@ -804,8 +939,8 @@ Be professional but approachable, like a knowledgeable real estate expert who ha
                         restaurant_strs.append(f"{r['name']} ({r['rating']}⭐{dist_str})")
                     top = ", ".join(restaurant_strs)
                     lines.append(f"   • Restaurants: {top}")
-                if loc.get("embedUrl"):
-                    lines.append(f"   • Map: {loc['embedUrl']}")
+                if loc.get("mapsLink"):
+                    lines.append(f"   • Map: {loc['mapsLink']}")
             formatted_response = "\n".join(lines)
 
         elif search_results and search_results[0].get("type") == "chat_response":

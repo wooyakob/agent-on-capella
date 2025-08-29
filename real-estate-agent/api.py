@@ -3,9 +3,15 @@ import os
 import sys
 import logging
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
+from pathlib import Path
+import json
 from dotenv import load_dotenv
+# Couchbase SDK
+from couchbase.auth import PasswordAuthenticator
+from couchbase.cluster import Cluster
+from couchbase.options import ClusterOptions, QueryOptions
 
 load_dotenv()
 
@@ -15,21 +21,54 @@ from agent import LangGraphRealEstateAgent
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY")
-if not app.secret_key:
-    logger.warning("SECRET_KEY is not set. Sessions may be insecure in production.")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+if not app.secret_key:
+    logger.warning("SECRET_KEY is not set. Sessions may be insecure in production.")
 
 agents = {}
 # In-memory per-session saved/hidden properties
 saved_properties = {}
 hidden_properties = {}
 
+# --- Couchbase Capella (profiles/buyers/2025) ---
+_cb_cluster = None
+
+def get_cb_cluster():
+    """Initialize and cache the Couchbase Cluster connection."""
+    global _cb_cluster
+    if _cb_cluster is not None:
+        return _cb_cluster
+    host = os.getenv("CB_HOSTNAME")
+    user = os.getenv("CB_USERNAME")
+    pwd = os.getenv("CB_PASSWORD")
+    if not host or not user or not pwd:
+        logger.error("Couchbase credentials not configured (CB_HOSTNAME, CB_USERNAME, CB_PASSWORD)")
+        raise RuntimeError("Couchbase credentials not configured")
+    auth = PasswordAuthenticator(user, pwd)
+    _cb_cluster = Cluster(host, ClusterOptions(auth))
+    _cb_cluster.wait_until_ready(timedelta(seconds=10))
+    return _cb_cluster
+
+def get_profiles_path() -> str:
+    """Return `bucket`.`scope`.`collection` path for buyer saved properties.
+    Defaults: profiles.buyers.2025, overridable by env vars CB_PROFILES_BUCKET, CB_PROFILES_SCOPE, CB_PROFILES_COLLECTION.
+    """
+    bucket = os.getenv("CB_PROFILES_BUCKET", "profiles")
+    scope = os.getenv("CB_PROFILES_SCOPE", "buyers")
+    collection = os.getenv("CB_PROFILES_COLLECTION", "2025")
+    return f"`{bucket}`.`{scope}`.`{collection}`"
+
 @app.route('/')
 def index():
     """Render the LangGraph chat interface."""
     return render_template('index.html')
+
+@app.route('/saved')
+def saved_page():
+    """Render a dedicated Saved Properties page."""
+    return render_template('saved.html')
 
 @app.route('/api/start_session', methods=['POST'])
 def start_session():
@@ -160,17 +199,136 @@ def save_property():
     try:
         data = request.get_json() or {}
         prop = data.get('property') or {}
+        buyer_name = (data.get('buyer_name') or '').strip()
         session_id = session.get('session_id')
         if not session_id:
             return jsonify({'success': False, 'error': 'Session not found'}), 400
-        key = prop.get('id') or f"{prop.get('address','')}|{prop.get('name','')}"
-        if not key.strip():
+        # Build a robust deduplication key
+        addr = (prop.get('address') or (prop.get('location') or {}).get('address') or '').strip().lower()
+        name = (prop.get('name') or prop.get('title') or '').strip().lower()
+        price = prop.get('price')
+        # Key priority: id → address|name → address → name|price
+        if prop.get('id'):
+            key = prop.get('id')
+        elif addr and name:
+            key = f"{addr}|{name}"
+        elif addr:
+            key = addr
+        elif name and price is not None:
+            key = f"{name}|{price}"
+        else:
+            key = ''
+        if not str(key).strip():
             return jsonify({'success': False, 'error': 'Invalid property payload'}), 400
+        logger.info(f"SaveProperty: session={session_id} buyer='{buyer_name}' key='{key}' addr='{addr}' name='{name}' price='{price}'")
         saved_properties.setdefault(session_id, [])
         # Prevent duplicates by key
-        if not any((p.get('id') or f"{p.get('address','')}|{p.get('name','')}") == key for p in saved_properties[session_id]):
+        if not any((
+            p.get('id')
+            or (
+                ((p.get('address') or (p.get('location') or {}).get('address') or '').strip().lower())
+                and (p.get('name') or p.get('title'))
+                and f"{(p.get('address') or (p.get('location') or {}).get('address') or '').strip().lower()}|{(p.get('name') or p.get('title')).strip().lower()}"
+            )
+            or ((p.get('address') or (p.get('location') or {}).get('address') or '').strip().lower())
+            or (
+                (p.get('name') or p.get('title')) and (p.get('price') is not None)
+                and f"{(p.get('name') or p.get('title')).strip().lower()}|{p.get('price')}"
+            )
+        ) == key for p in saved_properties[session_id]):
             saved_properties[session_id].append(prop)
-        return jsonify({'success': True, 'saved_count': len(saved_properties[session_id])})
+
+        # Also persist to Couchbase buyer document if buyer_name provided
+        persisted = False
+        saved_count_profile = None
+        if buyer_name:
+            try:
+                cluster = get_cb_cluster()
+                collection_path = get_profiles_path()
+                buyer_key = f"buyer::{buyer_name.lower()}"
+                # Build minimal snapshot
+                snapshot = {
+                    'id': prop.get('id'),
+                    'name': prop.get('name') or prop.get('title'),
+                    'address': prop.get('address') or (prop.get('location') or {}).get('address'),
+                    'price': prop.get('price'),
+                    'bedrooms': prop.get('bedrooms'),
+                    'bathrooms': prop.get('bathrooms'),
+                    'house_sqft': prop.get('house_sqft') or prop.get('sqft'),
+                    'dedupe_key': key,
+                    'saved_at': datetime.now().isoformat(),
+                    # Linkage/provenance
+                    'saved_by_key': buyer_key,
+                    'saved_by_name': buyer_name,
+                    'session_id': session_id
+                }
+                # Ensure buyer document exists WITHOUT overwriting existing content
+                # 1) Try a plain INSERT; if the doc exists, ignore the error
+                try:
+                    cluster.query(
+                        f"""
+                        INSERT INTO {collection_path} (KEY, VALUE)
+                        VALUES ($buyer_key, {{ "saved_properties": [] }})
+                        """,
+                        QueryOptions(named_parameters={
+                            'buyer_key': buyer_key
+                        })
+                    ).execute()
+                except Exception:
+                    # Document likely exists — ignore
+                    pass
+                # 2) If doc exists but array missing, initialize it
+                cluster.query(
+                    f"""
+                    UPDATE {collection_path} AS b
+                    SET b.saved_properties = IFMISSINGORNULL(b.saved_properties, [])
+                    WHERE META(b).id = $buyer_key
+                    """,
+                    QueryOptions(named_parameters={
+                        'buyer_key': buyer_key
+                    })
+                ).execute()
+                # Append snapshot if not duplicate
+                qr = cluster.query(
+                    f"""
+                    UPDATE {collection_path} AS b
+                    SET b.saved_properties = ARRAY_APPEND(b.saved_properties, $prop_snapshot)
+                    WHERE META(b).id = $buyer_key
+                      AND NOT ANY p IN b.saved_properties SATISFIES
+                        COALESCE(p.dedupe_key, IFMISSINGORNULL(p.id, p.address || '|' || p.name)) = $dedupe_key
+                      END
+                    RETURNING ARRAY_LENGTH(b.saved_properties) AS saved_count
+                    """,
+                    QueryOptions(named_parameters={
+                        'buyer_key': buyer_key,
+                        'prop_snapshot': snapshot,
+                        'dedupe_key': key
+                    })
+                ).execute()
+                try:
+                    upd_rows = list(qr)
+                    logger.info(f"SaveProperty: update rows={upd_rows}")
+                except Exception:
+                    logger.info("SaveProperty: unable to log update rows")
+                # Get current count
+                res = cluster.query(
+                    f"SELECT ARRAY_LENGTH(b.saved_properties) AS cnt FROM {collection_path} AS b USE KEYS $buyer_key",
+                    QueryOptions(named_parameters={'buyer_key': buyer_key})
+                ).execute()
+                rows = list(res)
+                if rows:
+                    saved_count_profile = rows[0].get('cnt')
+                persisted = True
+            except Exception as e:
+                logger.error(f"Failed to persist saved property to Couchbase: {e}")
+
+        return jsonify({
+            'success': True,
+            'saved_count': len(saved_properties[session_id]),
+            'profile_persisted': persisted,
+            'profile_saved_count': saved_count_profile,
+            'dedupe_key': key
+        })
     except Exception as e:
         logger.error(f"Save property error: {e}")
         return jsonify({'success': False, 'error': 'Failed to save property'}), 500
@@ -204,6 +362,68 @@ def get_saved_properties():
     except Exception as e:
         logger.error(f"Get saved properties error: {e}")
         return jsonify({'success': False, 'error': 'Failed to load saved properties'}), 500
+
+@app.route('/api/buyer_saved', methods=['GET'])
+def get_buyer_saved():
+    """Return saved properties for a given buyer profile from Couchbase"""
+    try:
+        buyer_name = (request.args.get('buyer_name') or '').strip()
+        if not buyer_name:
+            return jsonify({'success': False, 'error': 'buyer_name is required'}), 400
+        cluster = get_cb_cluster()
+        collection_path = get_profiles_path()
+        buyer_key = f"buyer::{buyer_name.lower()}"
+        res = cluster.query(
+            f"SELECT b.saved_properties AS properties FROM {collection_path} AS b USE KEYS $buyer_key",
+            QueryOptions(named_parameters={'buyer_key': buyer_key})
+        ).execute()
+        rows = list(res)
+        props = rows[0].get('properties', []) if rows else []
+        if props is None:
+            props = []
+        return jsonify({'success': True, 'properties': props})
+    except Exception as e:
+        logger.error(f"Get buyer saved error: {e}")
+        return jsonify({'success': False, 'error': 'Failed to load buyer saved properties'}), 500
+
+@app.route('/api/buyer_saved', methods=['DELETE'])
+def delete_buyer_saved():
+    """Delete a saved property from a buyer profile by key (Couchbase)"""
+    try:
+        data = request.get_json() or {}
+        buyer_name = (data.get('buyer_name') or '').strip()
+        key = (data.get('key') or '').strip()
+        if not buyer_name or not key:
+            return jsonify({'success': False, 'error': 'buyer_name and key are required'}), 400
+        cluster = get_cb_cluster()
+        collection_path = get_profiles_path()
+        buyer_key = f"buyer::{buyer_name.lower()}"
+        # Remove the matching property by dedupe key
+        cluster.query(
+            f"""
+            UPDATE {collection_path} AS b
+            SET b.saved_properties = ARRAY p FOR p IN b.saved_properties WHEN
+                COALESCE(p.dedupe_key, IFMISSINGORNULL(p.id, p.address || '|' || p.name)) != $prop_key
+            END
+            WHERE META(b).id = $buyer_key
+            RETURNING ARRAY_LENGTH(b.saved_properties) AS remaining
+            """,
+            QueryOptions(named_parameters={
+                'buyer_key': buyer_key,
+                'prop_key': key
+            })
+        ).execute()
+        # Fetch remaining count for response
+        res = cluster.query(
+            f"SELECT ARRAY_LENGTH(b.saved_properties) AS cnt FROM {collection_path} AS b USE KEYS $buyer_key",
+            QueryOptions(named_parameters={'buyer_key': buyer_key})
+        ).execute()
+        rows = list(res)
+        remaining = rows[0].get('cnt') if rows else 0
+        return jsonify({'success': True, 'deleted': True, 'remaining': remaining})
+    except Exception as e:
+        logger.error(f"Delete buyer saved error: {e}")
+        return jsonify({'success': False, 'error': 'Failed to delete saved property'}), 500
 
 @app.route('/api/search_properties', methods=['POST'])
 def search_properties():

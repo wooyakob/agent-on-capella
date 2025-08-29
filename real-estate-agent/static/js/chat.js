@@ -13,12 +13,38 @@ class ChatApp {
         this.quickPrompts = document.getElementById('quickPrompts');
         this.tabMatches = document.getElementById('tabMatches');
         this.tabSaved = document.getElementById('tabSaved');
+        this.tabBuyerSaved = document.getElementById('tabBuyerSaved');
         this.propertiesPanel = document.getElementById('propertiesPanel');
         this.propertiesList = document.getElementById('propertiesList');
         this.propertiesMeta = document.getElementById('propertiesMeta');
-        this.currentTab = 'matches'; // 'matches' | 'saved'
+        this.currentTab = 'matches'; // 'matches' | 'saved' | 'buyerSaved'
         
+        // Do not force-show properties panel; only show when there are matches
         this.init();
+    }
+
+    async loadBuyerSavedProperties() {
+        try {
+            const buyerName = (this.buyerNameInput?.value || '').trim();
+            if (!buyerName) {
+                this.propertiesMeta && (this.propertiesMeta.textContent = 'Enter a buyer name to view saved properties');
+                this.renderProperties([]);
+                return;
+            }
+            const res = await fetch(`/api/buyer_saved?buyer_name=${encodeURIComponent(buyerName)}`);
+            const data = await res.json();
+            if (!data.success) {
+                this.propertiesMeta && (this.propertiesMeta.textContent = '');
+                this.renderProperties([]);
+                return;
+            }
+            const saved = data.properties || [];
+            this.propertiesMeta && (this.propertiesMeta.textContent = `${saved.length} saved for ${buyerName}`);
+            this.renderProperties(saved);
+        } catch (e) {
+            console.debug('Failed to load buyer saved properties', e);
+            this.renderProperties([]);
+        }
     }
 
     formatPrice(val) {
@@ -59,21 +85,30 @@ class ChatApp {
     }
 
     setupTabs() {
-        if (!this.tabMatches || !this.tabSaved) return;
+        if (!this.tabMatches || !this.tabSaved || !this.tabBuyerSaved) return;
         const activate = (tab) => {
             this.currentTab = tab;
             this.tabMatches.classList.toggle('active', tab === 'matches');
             this.tabMatches.setAttribute('aria-selected', tab === 'matches' ? 'true' : 'false');
             this.tabSaved.classList.toggle('active', tab === 'saved');
             this.tabSaved.setAttribute('aria-selected', tab === 'saved' ? 'true' : 'false');
+            this.tabBuyerSaved.classList.toggle('active', tab === 'buyerSaved');
+            this.tabBuyerSaved.setAttribute('aria-selected', tab === 'buyerSaved' ? 'true' : 'false');
         };
         this.tabMatches.addEventListener('click', () => {
             activate('matches');
             // Expect the next agent response to populate matches; leave current list as-is
+            if (this.propertiesPanel) this.propertiesPanel.style.display = 'block';
         });
         this.tabSaved.addEventListener('click', () => {
             activate('saved');
+            if (this.propertiesPanel) this.propertiesPanel.style.display = 'block';
             this.loadSavedProperties();
+        });
+        this.tabBuyerSaved.addEventListener('click', () => {
+            activate('buyerSaved');
+            if (this.propertiesPanel) this.propertiesPanel.style.display = 'block';
+            this.loadBuyerSavedProperties();
         });
     }
 
@@ -84,16 +119,15 @@ class ChatApp {
         if (!panel || !list) return;
         if (!properties || properties.length === 0) {
             list.innerHTML = '';
-            meta && (meta.textContent = this.currentTab === 'matches' ? '' : meta.textContent);
+            meta && (meta.textContent = '');
             panel.style.display = 'none';
             return;
         }
         panel.style.display = 'block';
         list.innerHTML = '';
-        if (this.currentTab === 'matches') {
-            meta && (meta.textContent = `Showing ${Math.min(3, properties.length)} of ${properties.length}`);
-        }
-        properties.slice(0, 3).forEach((property) => {
+        meta && (meta.textContent = `Showing ${Math.min(3, properties.length)} of ${properties.length}`);
+        const items = properties.slice(0, 3);
+        items.forEach((property) => {
             const propertyCard = document.createElement('div');
             propertyCard.className = 'property-card';
             const matchScore = (typeof property.similarity_score === 'number')
@@ -101,8 +135,9 @@ class ChatApp {
                 : (property.similarity_score || 'N/A');
             const badges = this.buildBadges(property);
             const priceLabel = this.formatPrice(property.price);
-            const mapUrl = property?.location?.embedUrl || null;
+            const mapLink = property?.location?.mapsLink || null;
             const propPayload = encodeURIComponent(JSON.stringify(property));
+            const deleteKey = property.id || `${property.address ?? ''}|${property.name ?? ''}`;
             propertyCard.innerHTML = `
                 <div class="property-header">
                     <h4>${property.name}</h4>
@@ -116,7 +151,7 @@ class ChatApp {
                     ${badges.length ? `<div class="property-badges">${badges.map(b => `<span class=\"property-badge\">${b}</span>`).join(' ')}</div>` : ''}
                     <div class="property-description">${(property.description || '').substring(0, 180)}...</div>
                     ${this.currentTab === 'matches' ? `<div class=\"property-score\">🎯 Match score: ${matchScore}</div>` : ''}
-                    ${mapUrl ? `<div class=\"property-map\"><iframe loading=\"lazy\" allowfullscreen src=\"${mapUrl}\"></iframe></div>` : ''}
+                    ${mapLink ? `<div class=\"property-map\"><a href=\"${mapLink}\" target=\"_blank\" rel=\"noopener noreferrer\">🗺️ View on map</a></div>` : ''}
                     <div class="property-actions">
                         <button class="property-action-btn" data-action="save" data-prop="${propPayload}">Save</button>
                         <button class="property-action-btn" data-action="hide" data-prop="${propPayload}">Hide</button>
@@ -134,13 +169,16 @@ class ChatApp {
                 if (!btn) return;
                 const action = btn.dataset.action;
                 const propStr = btn.dataset.prop;
-                let prop;
-                try { prop = JSON.parse(decodeURIComponent(propStr)); } catch { prop = null; }
-                if (!prop || !action) return;
+                let prop = null;
+                if (propStr) {
+                    try { prop = JSON.parse(decodeURIComponent(propStr)); } catch { prop = null; }
+                }
+                if (!action) return;
                 if (action === 'save' || action === 'hide') {
                     const url = action === 'save' ? '/api/save_property' : '/api/hide_property';
+                    const buyerName = (this.buyerNameInput?.value || '').trim();
                     try {
-                        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ property: prop }) });
+                        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ property: prop, buyer_name: buyerName }) });
                         const data = await res.json();
                         if (!data.success) {
                             console.warn('Action failed', data.error);
@@ -156,6 +194,31 @@ class ChatApp {
                     } catch (err) { console.error(err); }
                 } else if (action === 'tour') {
                     alert('Tour request placeholder — we can wire this to an email/CRM next.');
+                } else if (action === 'delete-buyer-saved') {
+                    const buyerName = (this.buyerNameInput?.value || '').trim();
+                    const key = decodeURIComponent(btn.dataset.key || '');
+                    if (!buyerName || !key) return;
+                    try {
+                        const res = await fetch('/api/buyer_saved', {
+                            method: 'DELETE',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ buyer_name: buyerName, key })
+                        });
+                        const data = await res.json();
+                        if (data.success && data.deleted) {
+                            const card = btn.closest('.property-card');
+                            card && card.remove();
+                            // update meta text
+                            const m = this.propertiesMeta?.textContent || '';
+                            const match = m.match(/^(\d+) saved/);
+                            if (match) {
+                                const count = Math.max(0, (parseInt(match[1], 10) || 1) - 1);
+                                this.propertiesMeta.textContent = `${count} saved for ${buyerName}`;
+                            }
+                        }
+                    } catch (err) {
+                        console.error('Failed to delete saved property', err);
+                    }
                 }
             });
             panel.dataset.bound = '1';
@@ -267,6 +330,10 @@ class ChatApp {
                 this.profileStatus.style.color = '#2196f3';
             } else {
                 this.profileStatus.textContent = '';
+            }
+            // If user is on Buyer Saved tab, refresh the list for the selected buyer
+            if (this.currentTab === 'buyerSaved') {
+                this.loadBuyerSavedProperties();
             }
         });
         
