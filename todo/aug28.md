@@ -1,3 +1,6 @@
 - update prepop steps to show different routes, functionality: maps (nearby schools, restaurants), prop vector search, market analysis, general advice. 
 - update Real Estate Agent Active section, add maps functionality here to make user aware
+- request tour - email agent, emails real estate agent from request tour
+- store saved properties in capella by buyer name
+- 
 - 

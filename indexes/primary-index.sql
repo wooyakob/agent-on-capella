@@ -1,0 +1,1 @@
+CREATE PRIMARY INDEX `buyers_2025_pidx` ON `profiles`.`buyers`.`2025`;
