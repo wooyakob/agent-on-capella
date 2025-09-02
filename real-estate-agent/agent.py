@@ -381,9 +381,9 @@ class LangGraphRealEstateAgent:
 
             def domain_of(url: str) -> str:
                 try:
-                    from urllib.parse import urlparse
                     return (urlparse(url).netloc or "").lower()
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Failed to parse domain from URL '{url}': {e}")
                     return ""
 
             def relevant(item: Dict[str, Any]) -> bool:
