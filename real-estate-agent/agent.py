@@ -639,7 +639,8 @@ Enhanced Query:"""
                         }
                     }]
                     return state
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to get location context from profile, falling back. Error: {e}")
             # Fall back to property-based approach if profile-centric fails
             pass
 
