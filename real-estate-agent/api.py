@@ -158,7 +158,30 @@ def chat():
         prev_props = getattr(agent, 'last_properties', []) or []
         prev_keyset = {(p.get('id') or p.get('address') or p.get('name') or str(idx)) for idx, p in enumerate(prev_props)}
 
-        response = agent.chat(user_message, buyer_profile)
+        # Get saved properties for this session and buyer
+        session_saved = saved_properties.get(session_id, [])
+        buyer_saved = []
+        if buyer_name:
+            try:
+                cluster = get_cb_cluster()
+                collection_path = get_profiles_path()
+                buyer_key = f"buyer::{buyer_name.lower()}"
+                res = cluster.query(
+                    f"SELECT b.saved_properties AS properties FROM {collection_path} AS b USE KEYS $buyer_key",
+                    QueryOptions(named_parameters={'buyer_key': buyer_key})
+                ).execute()
+                rows = list(res)
+                buyer_saved = rows[0].get('properties', []) if rows else []
+                if buyer_saved is None:
+                    buyer_saved = []
+            except Exception as e:
+                logger.error(f"Failed to retrieve buyer saved properties: {e}")
+                buyer_saved = []
+        
+        # Combine session and buyer saved properties
+        all_saved = session_saved + buyer_saved
+
+        response = agent.chat(user_message, buyer_profile, all_saved)
 
         # Only surface properties if they changed this turn
         current_props = getattr(agent, 'last_properties', []) or []
@@ -465,7 +488,30 @@ def search_properties():
         if buyer_name:
             buyer_profile = agent.get_buyer_profile(buyer_name)
         
-        result = agent.search_properties(query, num_results, buyer_profile)
+        # Get saved properties for this session and buyer
+        session_saved = saved_properties.get(session_id, [])
+        buyer_saved = []
+        if buyer_name:
+            try:
+                cluster = get_cb_cluster()
+                collection_path = get_profiles_path()
+                buyer_key = f"buyer::{buyer_name.lower()}"
+                res = cluster.query(
+                    f"SELECT b.saved_properties AS properties FROM {collection_path} AS b USE KEYS $buyer_key",
+                    QueryOptions(named_parameters={'buyer_key': buyer_key})
+                ).execute()
+                rows = list(res)
+                buyer_saved = rows[0].get('properties', []) if rows else []
+                if buyer_saved is None:
+                    buyer_saved = []
+            except Exception as e:
+                logger.error(f"Failed to retrieve buyer saved properties: {e}")
+                buyer_saved = []
+        
+        # Combine session and buyer saved properties
+        all_saved = session_saved + buyer_saved
+        
+        result = agent.search_properties(query, num_results, buyer_profile, all_saved)
         
         return jsonify({
             'success': True,

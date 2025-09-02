@@ -32,7 +32,8 @@ class RealEstateAgentState(TypedDict):
     search_results: List[Dict[str, Any]]  
     buyer_profile: Dict[str, Any]  
     next_action: str                
-    formatted_response: str          
+    formatted_response: str
+    saved_properties: List[Dict[str, Any]]          
 
 class LangGraphRealEstateAgent:
     """
@@ -91,10 +92,31 @@ class LangGraphRealEstateAgent:
             logger.error(f"Failed to initialize tools: {e}")
             raise
     
-    def couchbase_property_search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
-        """Search properties in Couchbase using vector similarity"""
+    def couchbase_property_search(self, query: str, k: int = 5, saved_properties: List[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Search properties in Couchbase using vector similarity, excluding saved properties"""
         try:
-            results = self.vector_store.similarity_search_with_score(query, k=k)
+            # Get more results initially to account for filtering out saved properties
+            search_k = max(k * 2, 10) if saved_properties else k
+            results = self.vector_store.similarity_search_with_score(query, k=search_k)
+            
+            # Build set of saved property keys for fast lookup
+            saved_keys = set()
+            if saved_properties:
+                for saved_prop in saved_properties:
+                    # Generate same deduplication key as in API
+                    addr = (saved_prop.get('address') or (saved_prop.get('location') or {}).get('address') or '').strip().lower()
+                    name = (saved_prop.get('name') or saved_prop.get('title') or '').strip().lower()
+                    price = saved_prop.get('price')
+                    
+                    if saved_prop.get('id'):
+                        saved_keys.add(saved_prop.get('id'))
+                    elif addr and name:
+                        saved_keys.add(f"{addr}|{name}")
+                    elif addr:
+                        saved_keys.add(addr)
+                    elif name and price is not None:
+                        saved_keys.add(f"{name}|{price}")
+            
             properties = []
             for doc, score in results:
                 property_data = {
@@ -111,7 +133,30 @@ class LangGraphRealEstateAgent:
                     "description": doc.page_content,
                     "similarity_score": round(score, 3)
                 }
+                
+                # Check if this property is already saved
+                if saved_keys:
+                    prop_addr = (property_data.get('address') or '').strip().lower()
+                    prop_name = (property_data.get('name') or '').strip().lower()
+                    prop_price = property_data.get('price')
+                    prop_id = doc.metadata.get('id')
+                    
+                    # Generate same deduplication key for comparison
+                    if prop_id and prop_id in saved_keys:
+                        continue  # Skip this saved property
+                    elif prop_addr and prop_name and f"{prop_addr}|{prop_name}" in saved_keys:
+                        continue  # Skip this saved property
+                    elif prop_addr and prop_addr in saved_keys:
+                        continue  # Skip this saved property
+                    elif prop_name and prop_price is not None and f"{prop_name}|{prop_price}" in saved_keys:
+                        continue  # Skip this saved property
+                
                 properties.append(property_data)
+                
+                # Stop when we have enough non-saved properties
+                if len(properties) >= k:
+                    break
+            
             return properties
         except Exception as e:
             logger.error(f"Couchbase search error: {e}")
@@ -467,6 +512,7 @@ Based on the conversation context and current query, respond with ONLY one word:
         
         user_query = state.get("user_query", "")
         buyer_profile = state.get("buyer_profile", {})
+        saved_properties = state.get("saved_properties", [])
         
         enhancement_prompt = """You are helping enhance a property search query for vector search. 
         
@@ -494,11 +540,11 @@ Enhanced Query:"""
             logger.error(f"Query enhancement error: {e}")
             enhanced_query = user_query
         
-        properties = self.couchbase_property_search(enhanced_query, k=5)
+        properties = self.couchbase_property_search(enhanced_query, k=5, saved_properties=saved_properties)
         
         if not properties and enhanced_query != user_query:
             logger.info("No results with enhanced query, trying original...")
-            properties = self.couchbase_property_search(user_query, k=5)
+            properties = self.couchbase_property_search(user_query, k=5, saved_properties=saved_properties)
         
         # Apply strict budget filtering if present in buyer profile
         try:
@@ -1044,7 +1090,7 @@ Be professional but approachable, like a knowledgeable real estate expert who ha
         """Get buyer profile (wrapper for compatibility)"""
         return self.load_buyer_profile(buyer_name)
     
-    def search_properties(self, query_text: str, num_results: int = 3, buyer_profile: Dict[str, Any] = None) -> Dict[str, Any]:
+    def search_properties(self, query_text: str, num_results: int = 3, buyer_profile: Dict[str, Any] = None, saved_properties: List[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Main method to search properties using the LangGraph workflow"""
         try:
             initial_state = RealEstateAgentState(
@@ -1053,7 +1099,8 @@ Be professional but approachable, like a knowledgeable real estate expert who ha
                 search_results=[],
                 buyer_profile=buyer_profile or {},
                 next_action="",
-                formatted_response=""
+                formatted_response="",
+                saved_properties=saved_properties or []
             )
             
             result = self.graph.invoke(initial_state)
@@ -1078,7 +1125,7 @@ Be professional but approachable, like a knowledgeable real estate expert who ha
                 "properties": []
             }
     
-    def chat(self, user_message: str, buyer_profile: Dict[str, Any] = None) -> str:
+    def chat(self, user_message: str, buyer_profile: Dict[str, Any] = None, saved_properties: List[Dict[str, Any]] = None) -> str:
         """Main chat method for Flask integration with conversation memory"""
         try:
             self.conversation_history.append({"role": "user", "content": user_message})
@@ -1092,7 +1139,8 @@ Be professional but approachable, like a knowledgeable real estate expert who ha
                 search_results=[],
                 buyer_profile=buyer_profile or {},
                 next_action="",
-                formatted_response=""
+                formatted_response="",
+                saved_properties=saved_properties or []
             )
             
             result = self.graph.invoke(initial_state)
