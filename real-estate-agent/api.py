@@ -29,8 +29,8 @@ def _keep_session_alive():
     # Ensure the session remains permanent across requests
     try:
         session.permanent = True
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Could not set session to permanent: {e}")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
