@@ -273,16 +273,21 @@ class LangGraphRealEstateAgent:
         If a location is provided (e.g., from buyer profile), prefer it in search variations and fallbacks.
         """
         try:
+            # Include location context in the optimization prompt if available
+            location_context = f"Location context: {location}" if location else "No specific location provided"
+            
             optimization_prompt = f"""
             Create optimized search queries for finding real estate market information.
             Original user query: "{query}"
+            {location_context}
             
             Generate 3 different focused search queries that would find current market data, price trends, 
             and housing market information. Each should be concise (under 15 words) and target different aspects:
             1. Current market prices/trends
-            2. Average home prices
+            2. Average home prices  
             3. Real estate market analysis
             
+            If a location is provided, ALWAYS include it in each search query to get location-specific results.
             Return each query on a separate line, nothing else.
             """
             optimized_queries = self.llm.invoke(optimization_prompt)
@@ -320,10 +325,10 @@ class LangGraphRealEstateAgent:
                     loc = (location or '').strip()
                     if loc:
                         base_vars = [
-                            clean_query,
                             f"{loc} {clean_query}",
-                            f"{clean_query} 2025",
-                            f"current {clean_query}"
+                            f"{loc} {clean_query} 2025",
+                            f"current {loc} {clean_query}",
+                            clean_query  # fallback without location
                         ]
                     else:
                         base_vars = [
@@ -406,9 +411,12 @@ class LangGraphRealEstateAgent:
                 logger.info("Trying fallback search...")
                 # Fallback prefers provided location if any
                 loc = (location or '').strip()
-                fb_query = (
-                    f"{loc} real estate market trends prices" if loc else "real estate market trends prices"
-                )
+                if loc:
+                    fb_query = f"{loc} real estate market trends prices 2025"
+                    logger.info(f"Fallback search with location: {fb_query}")
+                else:
+                    fb_query = "real estate market trends prices"
+                    logger.info(f"Fallback search without location: {fb_query}")
                 fallback_results = self.tavily_search.invoke(fb_query)
                 
                 if isinstance(fallback_results, dict) and 'results' in fallback_results:
@@ -776,6 +784,10 @@ Enhanced Query:"""
         user_query = state.get("user_query", "")
         buyer_profile = state.get("buyer_profile", {}) or {}
         location = (buyer_profile.get("location") or "").strip() or None
+
+        logger.info(f"Market search - User query: '{user_query}'")
+        logger.info(f"Market search - Buyer profile: {buyer_profile}")
+        logger.info(f"Market search - Extracted location: '{location}'")
 
         # Delegate to the helper that already handles location-aware variations and fallbacks
         market_items = self.tavily_market_search(user_query, location)

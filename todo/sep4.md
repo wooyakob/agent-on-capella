@@ -1,0 +1,1 @@
+- bug, check buyer profile is used in market research tool (it gave cocoa beach housing market info when buyer based in San Diego)
