@@ -6,11 +6,12 @@ from typing import List, Dict, Any, Literal
 from typing_extensions import TypedDict
 from datetime import timedelta
 import math
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 import requests
 
 from langgraph.graph import StateGraph, START, END
 from langchain_aws import BedrockEmbeddings, ChatBedrock
+from langchain_openai import ChatOpenAI  # Fallback LLM
 from langchain_couchbase.vectorstores import CouchbaseSearchVectorStore
 from langchain_tavily import TavilySearch
 
@@ -51,11 +52,14 @@ class LangGraphRealEstateAgent:
     def setup_tools(self):
         """Set up all tools: LLM, embeddings, Couchbase, and Tavily."""
         try:
+            # Primary (Bedrock) LLM
             self.llm = ChatBedrock(
                 model_id=("us.meta.llama4-maverick-17b-instruct-v1:0"),
                 region_name=("us-east-2"),
                 temperature=0.7
             )
+            self._fallback_llm = None  # Lazy init
+            self._fallback_llm_name = os.getenv("FALLBACK_LLM")
             
             self.embeddings = BedrockEmbeddings(model_id="amazon.titan-embed-text-v2:0")
 
@@ -91,6 +95,52 @@ class LangGraphRealEstateAgent:
         except Exception as e:
             logger.error(f"Failed to initialize tools: {e}")
             raise
+
+    # ---------------- Fallback / Resilience Helpers ----------------
+    class _SimpleLLMResponse:
+        def __init__(self, content: str):
+            self.content = content
+
+    def _init_fallback_llm(self):
+        """Lazily initialize the OpenAI fallback LLM if available."""
+        if self._fallback_llm is not None:
+            return self._fallback_llm
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if not openai_key:
+            logger.warning("OPENAI_API_KEY not set; cannot initialize fallback LLM")
+            return None
+        try:
+            self._fallback_llm = ChatOpenAI(
+                model=self._fallback_llm_name,
+                temperature=0.7,
+            )
+            logger.info(f"Initialized fallback OpenAI LLM: {self._fallback_llm_name}")
+        except Exception as e:
+            logger.error(f"Failed to initialize fallback LLM: {e}")
+            self._fallback_llm = None
+        return self._fallback_llm
+
+    def _safe_llm_invoke(self, payload):
+        """Invoke primary LLM; on failure, fall back to OpenAI if configured.
+        payload can be either a raw string (treated as user message) or a list of role/content dicts.
+        Returns an object with a .content attribute.
+        """
+        try:
+            return self.llm.invoke(payload)
+        except Exception as primary_err:
+            logger.warning(f"Primary LLM failed, attempting fallback. Error: {primary_err}")
+            fb = self._init_fallback_llm()
+            if fb is None:
+                logger.error("Fallback LLM unavailable; returning graceful error message")
+                return self._SimpleLLMResponse("I'm sorry, I'm having temporary trouble reaching the model. Could you try again in a moment?")
+            try:
+                # If payload is a plain string, wrap it
+                if isinstance(payload, str):
+                    payload = [{"role": "user", "content": payload}]
+                return fb.invoke(payload)
+            except Exception as fallback_err:
+                logger.error(f"Fallback LLM also failed: {fallback_err}")
+                return self._SimpleLLMResponse("I'm sorry, both primary and backup models are unavailable right now. Please try again shortly.")
     
     def couchbase_property_search(self, query: str, k: int = 5, saved_properties: List[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Search properties in Couchbase using vector similarity, excluding saved properties"""
@@ -161,6 +211,26 @@ class LangGraphRealEstateAgent:
         except Exception as e:
             logger.error(f"Couchbase search error: {e}")
             return []
+
+    # --- Response post-processing helpers ---
+    def _ensure_complete_sentence(self, text: str) -> str:
+        """Ensure the response does not end mid-sentence.
+        If the last line is cut off (no terminal punctuation), trim to previous sentence.
+        """
+        if not text:
+            return text
+        trimmed = text.rstrip()
+        if trimmed.endswith(('.', '!', '?')):
+            return trimmed
+        # Attempt to find last terminal punctuation before potential truncation
+        import re
+        matches = list(re.finditer(r'[\.?!]', trimmed))
+        if matches:
+            last = matches[-1].end()
+            # Keep everything up to last punctuation and ensure single newline
+            return trimmed[:last].rstrip() + "\n"
+        # Fallback: return original trimmed text (avoid overly aggressive deletion)
+        return trimmed + ("." if not trimmed.endswith('.') else "")
 
     def _parse_price(self, price_val: Any) -> float:
         """Attempt to parse price into a float (USD). Handles numbers and strings like "$1,234,567".
@@ -290,7 +360,7 @@ class LangGraphRealEstateAgent:
             If a location is provided, ALWAYS include it in each search query to get location-specific results.
             Return each query on a separate line, nothing else.
             """
-            optimized_queries = self.llm.invoke(optimization_prompt)
+            optimized_queries = self._safe_llm_invoke(optimization_prompt)
             if hasattr(optimized_queries, 'content'):
                 optimized_queries = optimized_queries.content
             optimized_queries = str(optimized_queries).strip().split('\n')
@@ -403,6 +473,55 @@ class LangGraphRealEstateAgent:
 
             filtered = [r for r in unique_results if relevant(r)]
             logger.info(f"Filtered market info: {len(filtered)} relevant out of {len(unique_results)} unique")
+            if not filtered and unique_results:
+                # Relax filtering: allow items mentioning housing or price without domain blacklist
+                logger.info("No strictly relevant results, attempting relaxed filtering...")
+                relaxed_keywords = ["housing", "median", "price", "condo", "inventory", "sales", "market"]
+                relaxed = []
+                for r in unique_results:
+                    title = (r.get('title') or '').lower()
+                    content = (r.get('content') or '').lower()
+                    text = f"{title} {content}"
+                    if any(k in text for k in relaxed_keywords):
+                        relaxed.append(r)
+                if relaxed:
+                    logger.info(f"Relaxed filtering recovered {len(relaxed)} items")
+                    filtered = relaxed
+            # If still empty, try a broader secondary wave of queries
+            if not filtered:
+                try:
+                    secondary_terms = [
+                        "housing statistics", "market report", "median home price", "mls report", "housing inventory"
+                    ]
+                    loc = (location or '').strip()
+                    secondary_queries = []
+                    for term in secondary_terms:
+                        if loc:
+                            secondary_queries.append(f"{loc} {term} 2025")
+                        secondary_queries.append(f"{term} {loc}".strip())
+                    added = []
+                    for sq in secondary_queries:
+                        try:
+                            results = self.tavily_search.invoke(sq)
+                            if isinstance(results, dict) and 'results' in results:
+                                results = results['results']
+                            if not results:
+                                continue
+                            for r in results:
+                                url = (r.get('url') if isinstance(r, dict) else None)
+                                if url and url not in seen_urls:
+                                    seen_urls.add(url)
+                                    added.append(r)
+                            if len(added) >= 5:
+                                break
+                        except Exception as e:
+                            logger.debug(f"Secondary query '{sq}' failed: {e}")
+                            continue
+                    if added:
+                        logger.info(f"Secondary search wave added {len(added)} items")
+                        filtered = added
+                except Exception as e:
+                    logger.debug(f"Secondary search wave failed: {e}")
             return filtered[:5]
             
         except Exception as e:
@@ -452,6 +571,15 @@ class LangGraphRealEstateAgent:
         
         user_query = state.get("user_query", "")
         messages = state.get("messages", [])
+
+        # Deterministic override for MARKET_SEARCH: if query has strong market signals and lacks property search verbs
+        ql = user_query.lower()
+        market_keywords = ["market", "price", "prices", "trends", "inventory", "median", "dom", "days on market", "appreciation"]
+        property_verbs = ["find", "show me", "looking for", "search for", "list", "listings", "want a", "need a"]
+        if any(k in ql for k in market_keywords) and not any(v in ql for v in property_verbs):
+            logger.info("Deterministic override: MARKET_SEARCH triggered by keywords")
+            state["next_action"] = "market_search"
+            return state
         
         conversation_context = ""
         if len(messages) > 1:  
@@ -487,7 +615,7 @@ Current User Query: "{query}"
 Based on the conversation context and current query, respond with ONLY one word: PROPERTY_SEARCH, MARKET_SEARCH, LOCATION_CONTEXT, or GENERAL_CHAT"""
 
         try:
-            response = self.llm.invoke([
+            response = self._safe_llm_invoke([
                 {"role": "user", "content": analysis_prompt.format(
                     context=conversation_context,
                     query=user_query
@@ -534,7 +662,7 @@ Include specific details like location preferences, property types, amenities, a
 Enhanced Query:"""
 
         try:
-            enhanced_response = self.llm.invoke([
+            enhanced_response = self._safe_llm_invoke([
                 {"role": "user", "content": enhancement_prompt.format(
                     query=user_query, 
                     profile=json.dumps(buyer_profile, indent=2) if buyer_profile else "No profile available"
@@ -548,11 +676,11 @@ Enhanced Query:"""
             logger.error(f"Query enhancement error: {e}")
             enhanced_query = user_query
         
-        properties = self.couchbase_property_search(enhanced_query, k=5, saved_properties=saved_properties)
+        properties = self.couchbase_property_search(enhanced_query, k=12, saved_properties=saved_properties)
         
         if not properties and enhanced_query != user_query:
             logger.info("No results with enhanced query, trying original...")
-            properties = self.couchbase_property_search(user_query, k=5, saved_properties=saved_properties)
+            properties = self.couchbase_property_search(user_query, k=12, saved_properties=saved_properties)
         
         # Apply strict budget filtering if present in buyer profile
         try:
@@ -564,17 +692,42 @@ Enhanced Query:"""
         except Exception as e:
             logger.debug(f"Budget filtering skipped due to error: {e}")
 
-        # Prefer properties that match the buyer's preferred location in their address text.
+        # Strict location filtering: keep only properties within buyer city/state if provided.
         try:
             loc_pref = (buyer_profile or {}).get('location')
-            if loc_pref:
+            if loc_pref and properties:
+                import re
                 loc_lower = str(loc_pref).lower()
-                addr_matches = [p for p in properties if loc_lower in str(p.get('address', '')).lower()]
-                # If we found any address matches, prefer them and drop others
-                if addr_matches:
-                    properties = addr_matches
+                state_code = None
+                tokens = [t.strip(',') for t in str(loc_pref).split()]
+                for t in tokens:
+                    if len(t) == 2 and t.isalpha():
+                        state_code = t.upper()
+                        break
+                if not state_code:
+                    city_to_state = {"san": "CA", "diego": "CA"}
+                    for t in city_to_state:
+                        if t in loc_lower:
+                            state_code = city_to_state[t]
+                            break
+                def addr_state(addr: str):
+                    m = re.search(r",\s*([A-Z]{2})\s*\d{5}?", str(addr))
+                    return m.group(1) if m else None
+                city_tokens = [t for t in tokens if len(t) > 2]
+                filtered_loc = []
+                for p in properties:
+                    addr = str(p.get('address',''))
+                    addr_low = addr.lower()
+                    state_ok = True if not state_code else addr_state(addr) == state_code
+                    city_ok = True if not city_tokens else any(ct in addr_low for ct in city_tokens)
+                    if state_ok and city_ok:
+                        filtered_loc.append(p)
+                if filtered_loc:
+                    properties = filtered_loc
+                else:
+                    logger.info("Strict location filter removed all properties; will not substitute remote matches.")
         except Exception as e:
-            logger.debug(f"Location preference filtering skipped due to error: {e}")
+            logger.debug(f"Strict location filtering skipped due to error: {e}")
 
         # Fallback: filter by state if buyer location mentions a known state (e.g., CA) and geocoding is unavailable
         try:
@@ -603,7 +756,12 @@ Enhanced Query:"""
         except Exception:
             pass
 
-        state["search_results"] = properties
+        # If after strict filtering nothing remains, do NOT show remote properties; prompt user instead.
+        if not properties:
+            state["search_results"] = []
+            state["_no_local_matches"] = True  # ephemeral flag for formatter
+        else:
+            state["search_results"] = properties
         # Persist for follow-up location questions like "Is this house near good schools?"
         self.last_properties = properties
         logger.info(f"Found {len(properties)} properties")
@@ -785,12 +943,34 @@ Enhanced Query:"""
         buyer_profile = state.get("buyer_profile", {}) or {}
         location = (buyer_profile.get("location") or "").strip() or None
 
+        # Attempt to extract a ZIP code from saved properties if available (higher specificity)
+        zip_code = None
+        try:
+            saved_props = (buyer_profile or {}).get('saved_properties') or []
+            import re
+            for sp in saved_props:
+                addr = sp.get('address') or ''
+                m = re.search(r'\b(\d{5})(?:-\d{4})?\b', addr)
+                if m:
+                    zip_code = m.group(1)
+                    break
+        except Exception:
+            pass
+        if zip_code:
+            logger.info(f"Using extracted ZIP for market search context: {zip_code}")
+            # Prepend ZIP to user query to bias optimization stage
+            if zip_code not in user_query:
+                user_query = f"{user_query} {zip_code}".strip()
+
         logger.info(f"Market search - User query: '{user_query}'")
         logger.info(f"Market search - Buyer profile: {buyer_profile}")
-        logger.info(f"Market search - Extracted location: '{location}'")
+        logger.info(f"Market search - Extracted location: '{location}' (zip={zip_code})")
 
         # Delegate to the helper that already handles location-aware variations and fallbacks
         market_items = self.tavily_market_search(user_query, location)
+        # Attach metadata about zip to state for formatting
+        if zip_code:
+            state['__zip_used'] = zip_code
         state["search_results"] = market_items
         logger.info(f"Market search returned {len(market_items)} items (location={location})")
         return state
@@ -842,7 +1022,7 @@ Tailor your advice to this buyer's profile when relevant."""
                     "content": msg["content"]
                 })
             
-            response = self.llm.invoke(conversation_messages)
+            response = self._safe_llm_invoke(conversation_messages)
             
             llm_content = response.content.lower()
             suggestion = ""
@@ -901,7 +1081,7 @@ Create a natural, enthusiastic response that:
 Be conversational and helpful, like a real estate agent would be."""
 
             try:
-                response = self.llm.invoke([
+                response = self._safe_llm_invoke([
                     {"role": "user", "content": formatting_prompt}
                 ])
                 formatted_response = response.content
@@ -919,7 +1099,17 @@ Be conversational and helpful, like a real estate agent would be."""
             buyer_profile = state.get("buyer_profile", {})
             max_budget = (buyer_profile.get('budget') or {}).get('max')
             budget_text = f" under ${max_budget:,.0f}" if max_budget else ""
-            formatted_response = f"I didn't find any properties{budget_text} that match right now. Would you like me to expand the search area or adjust other criteria?"
+            if state.get("_no_local_matches"):
+                loc = buyer_profile.get('location') or 'your preferred area'
+                formatted_response = (
+                    f"I focused on {loc} and didn't find properties{budget_text} that match yet. "
+                    "Would you like me to: (a) widen the radius, (b) relax budget/features, or (c) include nearby coastal cities?"
+                )
+            else:
+                formatted_response = (
+                    f"I didn't find any properties{budget_text} that match right now. "
+                    "Want me to expand the search area or adjust other criteria?"
+                )
         elif next_action == "market_search" and search_results:
             market_data = []
             for item in search_results[:5]:
@@ -933,6 +1123,10 @@ Content: {item.get('content', 'No content available')[:500]}...
             market_prompt = f"""You are a real estate expert analyzing current market information for a client.
 
 Client's Question: "{user_query}"
+
+Context:
+Location Provided: {(buyer_profile or {}).get('location','N/A')}
+ZIP Focus: {state.get('__zip_used','None')}
 
 Market Information Found:
 {chr(10).join(market_data)}
@@ -953,7 +1147,7 @@ For price questions specifically:
 Be professional but approachable, like a knowledgeable real estate expert who has done research."""
 
             try:
-                response = self.llm.invoke([
+                response = self._safe_llm_invoke([
                     {"role": "user", "content": market_prompt}
                 ])
                 formatted_response = response.content
@@ -978,6 +1172,22 @@ Be professional but approachable, like a knowledgeable real estate expert who ha
                     formatted_response += "• Checking recent sales on Zillow or Redfin\n"
                     formatted_response += "• Consulting with a local real estate agent\n"
                     formatted_response += "• Looking at MLS data for comparable properties\n"
+        elif next_action == "market_search" and not search_results:
+            # Provide a specific helpful fallback instead of generic assistant blurb
+            loc = (buyer_profile or {}).get('location') or 'your area'
+            zip_note = ''
+            if state.get('__zip_used'):
+                zip_note = f" (ZIP {state.get('__zip_used')})"
+            formatted_response = (
+                f"I tried searching for up-to-date market reports in {loc}{zip_note}, "
+                "but the sources I queried didn't return recent, clearly relevant data right now.\n\n"
+                "Here's how you can still get insight quickly:\n"
+                "1. Check median list and sold prices on Zillow / Redfin (filter to condos, last 30-90 days).\n"
+                "2. Look for local association or MLS monthly market reports (often published as a PDF).\n"
+                "3. Compare year-over-year changes in: median price, days on market, inventory, and price per sqft.\n"
+                "4. If you share a ZIP code, I can refine and try again with more targeted queries.\n\n"
+                "Want me to broaden the search timeframe (include 2024 reports) or switch to overall residential instead of just condos?"
+            )
         
         elif next_action == "location_context" and search_results:
             # If the result is profile-centric (single dict with nearby lists), present only schools/restaurants
@@ -1036,10 +1246,11 @@ Be professional but approachable, like a knowledgeable real estate expert who ha
             formatted_response = "I'd be happy to help you! I can search for properties based on your dream home description, find current market information, or answer general real estate questions. What would you like to know?"
         
         messages = state.get("messages", [])
+        # Ensure response ends cleanly
+        formatted_response = self._ensure_complete_sentence(formatted_response)
         messages.append({"role": "assistant", "content": formatted_response})
         state["messages"] = messages
         state["formatted_response"] = formatted_response
-        
         return state
     
     def route_decision(self, state: RealEstateAgentState) -> Literal["property_search", "market_search", "location_context", "general_chat"]:
@@ -1088,12 +1299,12 @@ Be professional but approachable, like a knowledgeable real estate expert who ha
         """Get LLM response for simple interactions (like greeting)"""
         try:
             if system_prompt:
-                response = self.llm.invoke([
+                response = self._safe_llm_invoke([
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message}
                 ])
             else:
-                response = self.llm.invoke([{"role": "user", "content": user_message}])
+                response = self._safe_llm_invoke([{"role": "user", "content": user_message}])
             return response.content
         except Exception as e:
             logger.error(f"LLM response error: {e}")

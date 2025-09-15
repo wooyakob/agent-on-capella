@@ -41,6 +41,7 @@ agents = {}
 # In-memory per-session saved/hidden properties
 saved_properties = {}
 hidden_properties = {}
+tour_requests = {}
 
 # --- Couchbase Capella (profiles/buyers/2025) ---
 _cb_cluster = None
@@ -79,6 +80,12 @@ def index():
 def saved_page():
     """Render a dedicated Saved Properties page."""
     return render_template('saved.html')
+
+@app.route('/tours')
+@app.route('/tours/<tour_id>')
+def tours_page(tour_id=None):
+    """Render the Tours page. If tour_id provided, the page will load that tour."""
+    return render_template('tours.html', tour_id=tour_id or '')
 
 @app.route('/api/start_session', methods=['POST'])
 def start_session():
@@ -622,6 +629,274 @@ def graph_info():
             'success': False,
             'error': 'Failed to get graph information'
         }), 500
+
+ # ------------------- Tours APIs -------------------
+
+@app.route('/api/tours', methods=['POST'])
+def create_tour():
+    """Create a tour request for the current session.
+    Payload: { property: {...}, preferred_time: optional ISO/date string, buyer_name: optional }
+    Returns: { success, tour_id }
+    """
+    try:
+        data = request.get_json() or {}
+        prop = data.get('property') or {}
+        preferred_time = (data.get('preferred_time') or '').strip()
+        buyer_name = (data.get('buyer_name') or '').strip()
+        session_id = session.get('session_id')
+        if not session_id:
+            return jsonify({'success': False, 'error': 'Session not found'}), 400
+        tour_id = str(uuid.uuid4())
+        tour = {
+            'id': tour_id,
+            'session_id': session_id,
+            'buyer_name': buyer_name or None,
+            'property': prop,
+            'status': 'pending',  # pending | accepted | confirmed | declined | cancelled
+            'preferred_time': preferred_time or None,
+            'confirmed_time': None,
+            'created_at': datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat(),
+        }
+        tour_requests.setdefault(session_id, {})[tour_id] = tour
+
+        # Persist to Couchbase under buyer document if buyer_name provided
+        if buyer_name:
+            try:
+                cluster = get_cb_cluster()
+                collection_path = get_profiles_path()
+                buyer_key = f"buyer::{buyer_name.lower()}"
+                # Ensure buyer doc exists
+                try:
+                    cluster.query(
+                        f"""
+                        INSERT INTO {collection_path} (KEY, VALUE)
+                        VALUES ($buyer_key, {{"saved_properties": [], "tours": []}})
+                        """,
+                        QueryOptions(named_parameters={'buyer_key': buyer_key})
+                    ).execute()
+                except Exception:
+                    pass
+                # Ensure tours array exists
+                cluster.query(
+                    f"""
+                    UPDATE {collection_path} AS b
+                    SET b.tours = IFMISSINGORNULL(b.tours, [])
+                    WHERE META(b).id = $buyer_key
+                    """,
+                    QueryOptions(named_parameters={'buyer_key': buyer_key})
+                ).execute()
+                # Append tour if not already present by id
+                cluster.query(
+                    f"""
+                    UPDATE {collection_path} AS b
+                    SET b.tours = ARRAY_APPEND(b.tours, $tour)
+                    WHERE META(b).id = $buyer_key
+                      AND NOT ANY t IN b.tours SATISFIES t.id = $tour_id END
+                    RETURNING 1
+                    """,
+                    QueryOptions(named_parameters={'buyer_key': buyer_key, 'tour_id': tour_id, 'tour': tour})
+                ).execute()
+            except Exception as e:
+                logger.error(f"Failed to persist tour to Couchbase: {e}")
+
+        return jsonify({'success': True, 'tour_id': tour_id})
+    except Exception as e:
+        logger.error(f"Create tour error: {e}")
+        return jsonify({'success': False, 'error': 'Failed to create tour'}), 500
+
+@app.route('/api/tours', methods=['GET'])
+def list_tours():
+    """List tour requests for the current session or for a buyer if buyer_name is provided."""
+    try:
+        buyer_name = (request.args.get('buyer_name') or '').strip()
+        if buyer_name:
+            cluster = get_cb_cluster()
+            collection_path = get_profiles_path()
+            buyer_key = f"buyer::{buyer_name.lower()}"
+            res = cluster.query(
+                f"SELECT b.tours AS tours FROM {collection_path} AS b USE KEYS $buyer_key",
+                QueryOptions(named_parameters={'buyer_key': buyer_key})
+            ).execute()
+            rows = list(res)
+            tours = rows[0].get('tours', []) if rows else []
+            if tours is None:
+                tours = []
+            return jsonify({'success': True, 'tours': tours})
+        # Default: session-based
+        session_id = session.get('session_id')
+        if not session_id:
+            return jsonify({'success': False, 'error': 'Session not found'}), 400
+        tours = list(tour_requests.get(session_id, {}).values())
+        return jsonify({'success': True, 'tours': tours})
+    except Exception as e:
+        logger.error(f"List tours error: {e}")
+        return jsonify({'success': False, 'tours': []}), 500
+
+@app.route('/api/tours/<tour_id>', methods=['GET'])
+def get_tour(tour_id):
+    """Get a specific tour by ID for the current session, or for a buyer if buyer_name is provided."""
+    try:
+        buyer_name = (request.args.get('buyer_name') or '').strip()
+        if buyer_name:
+            cluster = get_cb_cluster()
+            collection_path = get_profiles_path()
+            buyer_key = f"buyer::{buyer_name.lower()}"
+            res = cluster.query(
+                f"""
+                SELECT FIRST t FOR t IN b.tours WHEN t.id = $tour_id END AS tour
+                FROM {collection_path} AS b USE KEYS $buyer_key
+                """,
+                QueryOptions(named_parameters={'buyer_key': buyer_key, 'tour_id': tour_id})
+            ).execute()
+            rows = list(res)
+            tour = rows[0].get('tour') if rows else None
+            if not tour:
+                return jsonify({'success': False, 'error': 'Tour not found'}), 404
+            return jsonify({'success': True, 'tour': tour})
+        # Default: session-based
+        session_id = session.get('session_id')
+        if not session_id:
+            return jsonify({'success': False, 'error': 'Session not found'}), 400
+        tour = tour_requests.get(session_id, {}).get(tour_id)
+        if not tour:
+            return jsonify({'success': False, 'error': 'Tour not found'}), 404
+        return jsonify({'success': True, 'tour': tour})
+    except Exception as e:
+        logger.error(f"Get tour error: {e}")
+        return jsonify({'success': False, 'error': 'Failed to load tour'}), 500
+
+@app.route('/api/tours/<tour_id>', methods=['PATCH'])
+def update_tour(tour_id):
+    """Update tour status or times. Payload can include status, confirmed_time, and/or preferred_time.
+    If the tour belongs to a buyer, also update in Couchbase.
+    """
+    try:
+        session_id = session.get('session_id')
+        if not session_id:
+            return jsonify({'success': False, 'error': 'Session not found'}), 400
+        tour = tour_requests.get(session_id, {}).get(tour_id)
+        # It may be only in Couchbase if created on a different session; allow updates by buyer_name
+        buyer_name = (request.args.get('buyer_name') or (tour or {}).get('buyer_name') or '').strip()
+        data = request.get_json() or {}
+        status = (data.get('status') or '').strip().lower()
+        confirmed_time = (data.get('confirmed_time') or '').strip()
+        preferred_time = (data.get('preferred_time') or '').strip()
+        allowed = {'pending', 'accepted', 'confirmed', 'declined', 'cancelled'}
+        # Update in-memory if present
+        if tour:
+            if status and status in allowed:
+                tour['status'] = status
+            if confirmed_time:
+                tour['confirmed_time'] = confirmed_time
+            if preferred_time:
+                tour['preferred_time'] = preferred_time
+            tour['updated_at'] = datetime.now().isoformat()
+
+        # Update in Couchbase if buyer_name provided
+        updated_from_cb = None
+        if buyer_name:
+            try:
+                cluster = get_cb_cluster()
+                collection_path = get_profiles_path()
+                buyer_key = f"buyer::{buyer_name.lower()}"
+                cluster.query(
+                    f"""
+                    UPDATE {collection_path} AS b
+                    SET b.tours = ARRAY CASE WHEN t.id = $tour_id THEN OBJECT_PUT(OBJECT_PUT(OBJECT_PUT(t, 'status', CASE WHEN $status_ok THEN $status ELSE t.status END), 'confirmed_time', CASE WHEN $has_confirmed THEN $confirmed ELSE t.confirmed_time END), 'preferred_time', CASE WHEN $has_preferred THEN $preferred ELSE t.preferred_time END) ELSE t END FOR t IN b.tours END
+                    WHERE META(b).id = $buyer_key
+                    RETURNING FIRST t FOR t IN b.tours WHEN t.id = $tour_id END AS tour
+                    """,
+                    QueryOptions(named_parameters={
+                        'buyer_key': buyer_key,
+                        'tour_id': tour_id,
+                        'status': status,
+                        'status_ok': status in allowed if status else False,
+                        'confirmed': confirmed_time,
+                        'has_confirmed': bool(confirmed_time),
+                        'preferred': preferred_time,
+                        'has_preferred': bool(preferred_time),
+                    })
+                ).execute()
+                # Fetch updated tour to return
+                res = cluster.query(
+                    f"SELECT FIRST t FOR t IN b.tours WHEN t.id = $tour_id END AS tour FROM {collection_path} AS b USE KEYS $buyer_key",
+                    QueryOptions(named_parameters={'buyer_key': buyer_key, 'tour_id': tour_id})
+                ).execute()
+                rows = list(res)
+                updated_from_cb = rows[0].get('tour') if rows else None
+            except Exception as e:
+                logger.error(f"Failed to update tour in Couchbase: {e}")
+        final_tour = updated_from_cb or tour
+        if not final_tour:
+            return jsonify({'success': False, 'error': 'Tour not found'}), 404
+        return jsonify({'success': True, 'tour': final_tour})
+    except Exception as e:
+        logger.error(f"Update tour error: {e}")
+        return jsonify({'success': False, 'error': 'Failed to update tour'}), 500
+
+# ------------------- Nearby Places API -------------------
+
+def _get_or_create_agent(session_id: str) -> LangGraphRealEstateAgent:
+    if session_id not in agents:
+        agents[session_id] = LangGraphRealEstateAgent()
+    return agents[session_id]
+
+@app.route('/api/nearby', methods=['GET'])
+def nearby():
+    """Return nearby schools and restaurants for a given lat/lon or address.
+    Query params: lat, lon, address
+    """
+    try:
+        session_id = session.get('session_id')
+        if not session_id:
+            return jsonify({'success': False, 'error': 'Session not found'}), 400
+        lat = request.args.get('lat', type=float)
+        lon = request.args.get('lon', type=float)
+        address = (request.args.get('address') or '').strip()
+        agent = _get_or_create_agent(session_id)
+        if (lat is None or lon is None) and address:
+            coords = agent._geocode_address(address)
+            lat, lon = coords.get('lat'), coords.get('lon')
+        schools = agent._nearby_places(lat, lon, 'school', radius=4000, min_rating=4.0, max_results=5) if lat is not None and lon is not None else []
+        restaurants = agent._nearby_places(lat, lon, 'restaurant', radius=3000, min_rating=4.2, max_results=5) if lat is not None and lon is not None else []
+        return jsonify({'success': True, 'schools': schools, 'restaurants': restaurants, 'lat': lat, 'lon': lon})
+    except Exception as e:
+        logger.error(f"Nearby places error: {e}")
+        return jsonify({'success': False, 'schools': [], 'restaurants': []}), 500
+
+@app.route('/api/tours/<tour_id>', methods=['DELETE'])
+def delete_tour(tour_id):
+    """Delete a tour by ID from session storage and, if buyer_name provided, from Couchbase buyer doc."""
+    try:
+        session_id = session.get('session_id')
+        if not session_id:
+            return jsonify({'success': False, 'error': 'Session not found'}), 400
+        # Remove from session in-memory store
+        if session_id in tour_requests and tour_id in tour_requests[session_id]:
+            del tour_requests[session_id][tour_id]
+        # Optionally remove from Couchbase if buyer_name provided
+        buyer_name = (request.args.get('buyer_name') or '').strip()
+        if buyer_name:
+            try:
+                cluster = get_cb_cluster()
+                collection_path = get_profiles_path()
+                buyer_key = f"buyer::{buyer_name.lower()}"
+                cluster.query(
+                    f"""
+                    UPDATE {collection_path} AS b
+                    SET b.tours = ARRAY t FOR t IN b.tours WHEN t.id != $tour_id END
+                    WHERE META(b).id = $buyer_key
+                    RETURNING 1
+                    """,
+                    QueryOptions(named_parameters={'buyer_key': buyer_key, 'tour_id': tour_id})
+                ).execute()
+            except Exception as e:
+                logger.error(f"Failed to delete tour from Couchbase: {e}")
+        return jsonify({'success': True, 'deleted': True})
+    except Exception as e:
+        logger.error(f"Delete tour error: {e}")
+        return jsonify({'success': False, 'error': 'Failed to delete tour'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=8080)

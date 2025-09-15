@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tours</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="top-nav">
+    <a href="/">Home</a>
+    <a href="/saved">Saved Properties</a>
+    <a href="/tours">Tours</a>
+  </div>
+  <main class="page">
+    <h1>Property Tours</h1>
+    <div class="controls">
+      <input id="buyerNameInput" class="profile-input" list="buyerNames" placeholder="Select a buyer (e.g., Jake Wood) to load tours from profile">
+      <datalist id="buyerNames"></datalist>
+      <button id="refreshToursBtn" class="btn">Refresh</button>
+    </div>
+    <div id="tourContext" data-tour-id="{{ tour_id }}"></div>
+
+    <section id="tourDetail" class="card" style="display:none">
+      <h2>Tour Request</h2>
+      <div class="tour-status-row">
+        <div><strong>Status:</strong> <span id="tourStatus">pending</span></div>
+        <div><strong>Preferred Time:</strong> <span id="tourPreferred">-</span></div>
+        <div><strong>Confirmed Time:</strong> <span id="tourConfirmed">-</span></div>
+      </div>
+      <div id="tourProperty" class="property-card"></div>
+      <div class="tour-actions">
+        <label>
+          Preferred time
+          <input id="preferredTimeInput" type="datetime-local">
+        </label>
+        <button id="updatePreferredBtn" class="btn">Save preferred time</button>
+        <button id="deleteTourBtn" class="btn delete-btn">Delete Tour</button>
+        <button data-status="accepted" class="btn tour-status-btn">Mark Accepted</button>
+        <button data-status="confirmed" class="btn tour-status-btn">Mark Confirmed</button>
+        <button data-status="declined" class="btn tour-status-btn">Mark Declined</button>
+        <button data-status="cancelled" class="btn tour-status-btn">Cancel</button>
+      </div>
+      <div id="tourError" style="color:#dc2626; font-size:12px; margin-top:6px;"></div>
+
+      <div class="tour-actions" style="margin-top: 16px;">
+        <label>
+          Confirmed time
+          <input id="confirmedTimeInput" type="datetime-local">
+        </label>
+        <button id="updateConfirmedBtn" class="btn">Save confirmed time</button>
+      </div>
+    </section>
+
+    <section id="tourList" class="list">
+      <h2>Your Tours</h2>
+      <div id="toursContainer" class="properties-container"></div>
+    </section>
+  </main>
+
+  <!-- Delete Confirmation Modal -->
+  <div id="confirmModal" class="modal" aria-hidden="true">
+    <div class="modal-content">
+      <h3>Confirm Deletion</h3>
+      <p>Are you sure you want to delete this tour?</p>
+      <div class="modal-actions">
+        <button id="confirmDeleteBtn" class="btn delete-btn">Delete</button>
+        <button id="cancelDeleteBtn" class="btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+  <script src="{{ url_for('static', filename='js/tours.js') }}"></script>
+</body>
+</html>

@@ -23,6 +23,47 @@ class ChatApp {
         this.init();
     }
 
+    // ----- Nearby helpers (schools & restaurants on property card) -----
+    async populateNearby(card, property) {
+        try {
+            const lat = property?.geo?.lat;
+            const lon = property?.geo?.lon;
+            const addr = property?.address || '';
+            const qs = new URLSearchParams();
+            if (typeof lat === 'number' && typeof lon === 'number') {
+                qs.set('lat', String(lat));
+                qs.set('lon', String(lon));
+            } else if (addr) {
+                qs.set('address', addr);
+            }
+            if ([...qs.keys()].length === 0) return;
+            const res = await fetch(`/api/nearby?${qs.toString()}`);
+            const data = await res.json();
+            if (!data.success) return;
+            const target = card.querySelector('.nearby');
+            if (!target) return;
+            const schools = data.schools || [];
+            const restaurants = data.restaurants || [];
+            const schoolHtml = schools.length ? `
+                <div class="nearby-section">
+                  <div class="nearby-title">🎓 Nearby Schools</div>
+                  <ul class="nearby-list">
+                    ${schools.map(s => `<li><strong>${s.name}</strong> • ${s.rating ?? 'N/A'}⭐ • ${s.distance_km ?? '?'} km • ${s.address ?? ''}</li>`).join('')}
+                  </ul>
+                </div>` : '';
+            const restaurantHtml = restaurants.length ? `
+                <div class="nearby-section">
+                  <div class="nearby-title">🍽️ Nearby Restaurants</div>
+                  <ul class="nearby-list">
+                    ${restaurants.map(r => `<li><strong>${r.name}</strong> • ${r.rating ?? 'N/A'}⭐ • ${r.distance_km ?? '?'} km • ${r.address ?? ''}</li>`).join('')}
+                  </ul>
+                </div>` : '';
+            target.innerHTML = schoolHtml + restaurantHtml;
+        } catch (e) {
+            console.debug('Nearby fetch failed', e);
+        }
+    }
+
     async loadBuyerSavedProperties() {
         try {
             const buyerName = (this.buyerNameInput?.value || '').trim();
@@ -152,6 +193,7 @@ class ChatApp {
                     <div class="property-description">${(property.description || '').substring(0, 180)}...</div>
                     ${this.currentTab === 'matches' ? `<div class=\"property-score\">🎯 Match score: ${matchScore}</div>` : ''}
                     ${mapLink ? `<div class=\"property-map\"><a href=\"${mapLink}\" target=\"_blank\" rel=\"noopener noreferrer\">🗺️ View on map</a></div>` : ''}
+                    <div class="nearby" data-nearby="1"></div>
                     <div class="property-actions">
                         <button class="property-action-btn" data-action="save" data-prop="${propPayload}">Save</button>
                         <button class="property-action-btn" data-action="hide" data-prop="${propPayload}">Hide</button>
@@ -160,6 +202,8 @@ class ChatApp {
                 </div>
             `;
             list.appendChild(propertyCard);
+            // Populate nearby schools/restaurants for each card
+            this.populateNearby(propertyCard, property);
         });
 
         // Delegate actions
@@ -193,7 +237,20 @@ class ChatApp {
                         }
                     } catch (err) { console.error(err); }
                 } else if (action === 'tour') {
-                    alert('Tour request placeholder — we can wire this to an email/CRM next.');
+                    try {
+                        const buyerName = (this.buyerNameInput?.value || '').trim();
+                        const res = await fetch('/api/tours', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ property: prop, buyer_name: buyerName })
+                        });
+                        const data = await res.json();
+                        if (data.success && data.tour_id) {
+                            window.location.href = `/tours/${encodeURIComponent(data.tour_id)}`;
+                        }
+                    } catch (e) {
+                        console.error('Failed to create tour', e);
+                    }
                 } else if (action === 'delete-buyer-saved') {
                     const buyerName = (this.buyerNameInput?.value || '').trim();
                     const key = decodeURIComponent(btn.dataset.key || '');
