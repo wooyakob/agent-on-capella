@@ -705,11 +705,9 @@ Enhanced Query:"""
                         state_code = t.upper()
                         break
                 if not state_code:
-                    city_to_state = {"san": "CA", "diego": "CA"}
-                    for t in city_to_state:
-                        if t in loc_lower:
-                            state_code = city_to_state[t]
-                            break
+                    # This hardcoded city-to-state mapping is brittle and has been removed.
+                    # For example, "San Antonio" would be incorrectly mapped to "CA".
+                    # A more robust geocoding or location parsing solution should be used.
                 def addr_state(addr: str):
                     m = re.search(r",\s*([A-Z]{2})\s*\d{5}?", str(addr))
                     return m.group(1) if m else None
