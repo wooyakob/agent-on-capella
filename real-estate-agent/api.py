@@ -72,6 +72,13 @@ def get_profiles_path() -> str:
     collection = os.getenv("CB_PROFILES_COLLECTION", "2025")
     return f"`{bucket}`.`{scope}`.`{collection}`"
 
+# New: tours collection path, separate from buyers
+def get_tours_path():
+    bucket = os.getenv('CB_TOURS_BUCKET', 'profiles')
+    scope = os.getenv('CB_TOURS_SCOPE', 'tours')
+    collection = os.getenv('CB_TOURS_COLLECTION', '2025')
+    return f"`{bucket}`.`{scope}`.`{collection}`"
+
 @app.route('/')
 def index():
     """Render the LangGraph chat interface."""
@@ -662,42 +669,30 @@ def create_tour():
         }
         tour_requests.setdefault(session_id, {})[tour_id] = tour
 
-        # Persist to Couchbase under buyer document if buyer_name provided
+        # Persist to Couchbase as an independent tour document if buyer_name provided
         if buyer_name:
             try:
                 cluster = get_cb_cluster()
-                collection_path = get_profiles_path()
+                profiles_path = get_profiles_path()
+                tours_path = get_tours_path()
                 buyer_key = f"buyer::{buyer_name.lower()}"
-                txns = Transactions(cluster)
-                def txn_logic(ctx):
-                    # Ensure buyer doc exists (UPSERT avoids conflicts if it already exists)
-                    ctx.query(
-                        f"""
-                        UPSERT INTO {collection_path} (KEY, VALUE)
-                        VALUES ($buyer_key, {{"saved_properties": [], "tours": []}})
-                        """,
+                # Ensure buyer doc exists (non-destructive). Try a simple INSERT; ignore if it already exists.
+                try:
+                    cluster.query(
+                        f"INSERT INTO {profiles_path} (KEY, VALUE) VALUES ($buyer_key, {{\"saved_properties\": [], \"tours\": []}})",
                         QueryOptions(named_parameters={'buyer_key': buyer_key})
-                    )
-                    # Ensure tours array exists and append if missing
-                    ctx.query(
-                        f"""
-                        UPDATE {collection_path} AS b
-                        SET b.tours = IFMISSINGORNULL(b.tours, [])
-                        WHERE META(b).id = $buyer_key
-                        """,
-                        QueryOptions(named_parameters={'buyer_key': buyer_key})
-                    )
-                    ctx.query(
-                        f"""
-                        UPDATE {collection_path} AS b
-                        SET b.tours = ARRAY_APPEND(b.tours, $tour)
-                        WHERE META(b).id = $buyer_key
-                          AND NOT ANY t IN b.tours SATISFIES t.id = $tour_id END
-                        RETURNING 1
-                        """,
-                        QueryOptions(named_parameters={'buyer_key': buyer_key, 'tour_id': tour_id, 'tour': tour})
-                    )
-                txns.run(txn_logic)
+                    ).execute()
+                except Exception:
+                    pass
+                # Persist tour as its own document so it can be reliably fetched by ID
+                try:
+                    tour_key = f"tour::{tour_id}"
+                    cluster.query(
+                        f"UPSERT INTO {tours_path} (KEY, VALUE) VALUES ($tour_key, $tour)",
+                        QueryOptions(named_parameters={'tour_key': tour_key, 'tour': tour})
+                    ).execute()
+                except Exception as e:
+                    logger.error(f"Failed to upsert tour doc: {e}")
             except Exception as e:
                 logger.error(f"Failed to persist tour to Couchbase: {e}")
 
@@ -713,16 +708,20 @@ def list_tours():
         buyer_name = (request.args.get('buyer_name') or '').strip()
         if buyer_name:
             cluster = get_cb_cluster()
-            collection_path = get_profiles_path()
-            buyer_key = f"buyer::{buyer_name.lower()}"
+            tours_path = get_tours_path()
+            # List independent tour docs for this buyer
             res = cluster.query(
-                f"SELECT b.tours AS tours FROM {collection_path} AS b USE KEYS $buyer_key",
-                QueryOptions(named_parameters={'buyer_key': buyer_key})
+                f"""
+                SELECT t AS tour
+                FROM {tours_path} AS t
+                WHERE META(t).id LIKE 'tour::%'
+                  AND LOWER(t.buyer_name) = LOWER($buyer_name)
+                ORDER BY t.created_at DESC
+                """,
+                QueryOptions(named_parameters={'buyer_name': buyer_name})
             ).execute()
             rows = list(res)
-            tours = rows[0].get('tours', []) if rows else []
-            if tours is None:
-                tours = []
+            tours = [r.get('tour') for r in rows if r.get('tour')]
             return jsonify({'success': True, 'tours': tours})
         # Default: session-based
         session_id = session.get('session_id')
@@ -741,12 +740,24 @@ def get_tour(tour_id):
         buyer_name = (request.args.get('buyer_name') or '').strip()
         if buyer_name:
             cluster = get_cb_cluster()
-            collection_path = get_profiles_path()
+            profiles_path = get_profiles_path()
+            tours_path = get_tours_path()
+            # Fetch independent tour doc by key first
+            tour_key = f"tour::{tour_id}"
+            res = cluster.query(
+                f"SELECT t AS tour FROM {tours_path} AS t USE KEYS $tour_key",
+                QueryOptions(named_parameters={'tour_key': tour_key})
+            ).execute()
+            rows = list(res)
+            tour = rows[0].get('tour') if rows else None
+            if tour:
+                return jsonify({'success': True, 'tour': tour})
+            # Backward-compat: check embedded array if any
             buyer_key = f"buyer::{buyer_name.lower()}"
             res = cluster.query(
                 f"""
                 SELECT FIRST t FOR t IN b.tours WHEN t.id = $tour_id END AS tour
-                FROM {collection_path} AS b USE KEYS $buyer_key
+                FROM {profiles_path} AS b USE KEYS $buyer_key
                 """,
                 QueryOptions(named_parameters={'buyer_key': buyer_key, 'tour_id': tour_id})
             ).execute()
@@ -799,28 +810,56 @@ def update_tour(tour_id):
         if buyer_name:
             try:
                 cluster = get_cb_cluster()
-                collection_path = get_profiles_path()
-                buyer_key = f"buyer::{buyer_name.lower()}"
+                profiles_path = get_profiles_path()
+                tours_path = get_tours_path()
+                tour_key = f"tour::{tour_id}"
+                # Update independent tour doc
                 res = cluster.query(
                     f"""
-                    UPDATE {collection_path} AS b
-                    SET b.tours = ARRAY CASE WHEN t.id = $tour_id THEN OBJECT_PUT(OBJECT_PUT(OBJECT_PUT(t, 'status', CASE WHEN $status_ok THEN $status ELSE t.status END), 'confirmed_time', CASE WHEN $has_confirmed THEN $confirmed ELSE t.confirmed_time END), 'preferred_time', CASE WHEN $has_preferred THEN $preferred ELSE t.preferred_time END) ELSE t END FOR t IN b.tours END
-                    WHERE META(b).id = $buyer_key
-                    RETURNING FIRST t FOR t IN b.tours WHEN t.id = $tour_id END AS tour
+                    UPDATE {tours_path} AS t
+                    USE KEYS $tour_key
+                    SET t.status = CASE WHEN $status_ok THEN $status ELSE t.status END,
+                        t.confirmed_time = CASE WHEN $has_confirmed THEN $confirmed ELSE t.confirmed_time END,
+                        t.preferred_time = CASE WHEN $has_preferred THEN $preferred ELSE t.preferred_time END,
+                        t.updated_at = $now
+                    RETURNING t AS tour
                     """,
                     QueryOptions(named_parameters={
-                        'buyer_key': buyer_key,
-                        'tour_id': tour_id,
+                        'tour_key': tour_key,
                         'status': status,
                         'status_ok': status in allowed if status else False,
                         'confirmed': confirmed_time,
                         'has_confirmed': bool(confirmed_time),
                         'preferred': preferred_time,
                         'has_preferred': bool(preferred_time),
+                        'now': datetime.now().isoformat(),
                     })
                 ).execute()
                 rows = list(res)
                 updated_from_cb = rows[0].get('tour') if rows else None
+                # Backward-compat: if independent doc missing, try updating embedded array
+                if not updated_from_cb:
+                    buyer_key = f"buyer::{buyer_name.lower()}"
+                    res = cluster.query(
+                        f"""
+                        UPDATE {profiles_path} AS b
+                        SET b.tours = ARRAY CASE WHEN t.id = $tour_id THEN OBJECT_PUT(OBJECT_PUT(OBJECT_PUT(t, 'status', CASE WHEN $status_ok THEN $status ELSE t.status END), 'confirmed_time', CASE WHEN $has_confirmed THEN $confirmed ELSE t.confirmed_time END), 'preferred_time', CASE WHEN $has_preferred THEN $preferred ELSE t.preferred_time END) ELSE t END FOR t IN b.tours END
+                        WHERE META(b).id = $buyer_key
+                        RETURNING FIRST t FOR t IN b.tours WHEN t.id = $tour_id END AS tour
+                        """,
+                        QueryOptions(named_parameters={
+                            'buyer_key': buyer_key,
+                            'tour_id': tour_id,
+                            'status': status,
+                            'status_ok': status in allowed if status else False,
+                            'confirmed': confirmed_time,
+                            'has_confirmed': bool(confirmed_time),
+                            'preferred': preferred_time,
+                            'has_preferred': bool(preferred_time),
+                        })
+                    ).execute()
+                    rows = list(res)
+                    updated_from_cb = rows[0].get('tour') if rows else None
             except Exception as e:
                 logger.error(f"Failed to update tour in Couchbase: {e}")
         final_tour = updated_from_cb or tour
@@ -876,11 +915,19 @@ def delete_tour(tour_id):
         if buyer_name:
             try:
                 cluster = get_cb_cluster()
-                collection_path = get_profiles_path()
+                profiles_path = get_profiles_path()
+                tours_path = get_tours_path()
+                # Delete independent tour doc
+                tour_key = f"tour::{tour_id}"
+                cluster.query(
+                    f"DELETE FROM {tours_path} USE KEYS $tour_key",
+                    QueryOptions(named_parameters={'tour_key': tour_key})
+                ).execute()
+                # Backward-compat: also remove from embedded array if exists
                 buyer_key = f"buyer::{buyer_name.lower()}"
                 cluster.query(
                     f"""
-                    UPDATE {collection_path} AS b
+                    UPDATE {profiles_path} AS b
                     SET b.tours = ARRAY t FOR t IN b.tours WHEN t.id != $tour_id END
                     WHERE META(b).id = $buyer_key
                     RETURNING 1

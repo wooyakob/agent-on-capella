@@ -697,7 +697,6 @@ Enhanced Query:"""
         try:
             loc_pref = (buyer_profile or {}).get('location')
             if loc_pref and properties:
-                import re
                 loc_lower = str(loc_pref).lower()
                 state_code = None
                 tokens = [t.strip(',') for t in str(loc_pref).split()]
@@ -709,6 +708,7 @@ Enhanced Query:"""
                     # This hardcoded city-to-state mapping is brittle and has been removed.
                     # For example, "San Antonio" would be incorrectly mapped to "CA".
                     # A more robust geocoding or location parsing solution should be used.
+                    pass
                 def addr_state(addr: str):
                     m = re.search(r",\s*([A-Z]{2})\s*\d{5}?", str(addr))
                     return m.group(1) if m else None

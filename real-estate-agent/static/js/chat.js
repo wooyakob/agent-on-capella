@@ -205,12 +205,16 @@ class ChatApp {
                             body: JSON.stringify({ property: prop, buyer_name: buyerName })
                         });
                         const data = await res.json();
-                        if (data.success && data.tour_id) {
+                        if (data && data.success && data.tour_id) {
                             const qp = buyerName ? `?buyer_name=${encodeURIComponent(buyerName)}` : '';
                             window.location.href = `/tours/${encodeURIComponent(data.tour_id)}${qp}`;
+                        } else {
+                            console.error('Create tour failed', data);
+                            alert(`Unable to create tour${data && data.error ? `: ${data.error}` : ''}. Please try again.`);
                         }
                     } catch (e) {
                         console.error('Failed to create tour', e);
+                        alert('Unable to create tour due to a network or server error. Please try again.');
                     }
                 } else if (action === 'delete-buyer-saved') {
                     const buyerName = (this.buyerNameInput?.value || '').trim();
