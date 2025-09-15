@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import traceback
+import re
 from typing import List, Dict, Any, Literal
 from typing_extensions import TypedDict
 from datetime import timedelta
@@ -110,8 +111,9 @@ class LangGraphRealEstateAgent:
             logger.warning("OPENAI_API_KEY not set; cannot initialize fallback LLM")
             return None
         try:
+            model_name = self._fallback_llm_name or "gpt-4o-mini"
             self._fallback_llm = ChatOpenAI(
-                model=self._fallback_llm_name,
+                model=model_name,
                 temperature=0.7,
             )
             logger.info(f"Initialized fallback OpenAI LLM: {self._fallback_llm_name}")
@@ -223,7 +225,6 @@ class LangGraphRealEstateAgent:
         if trimmed.endswith(('.', '!', '?')):
             return trimmed
         # Attempt to find last terminal punctuation before potential truncation
-        import re
         matches = list(re.finditer(r'[\.?!]', trimmed))
         if matches:
             last = matches[-1].end()

@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from couchbase.auth import PasswordAuthenticator
 from couchbase.cluster import Cluster
 from couchbase.options import ClusterOptions, QueryOptions
+from couchbase.transactions import Transactions
 
 load_dotenv()
 
@@ -433,8 +434,9 @@ def delete_buyer_saved():
     """Delete a saved property from a buyer profile by key (Couchbase)"""
     try:
         data = request.get_json() or {}
+        from urllib.parse import unquote
         buyer_name = (data.get('buyer_name') or '').strip()
-        key = (data.get('key') or '').strip()
+        key = unquote((data.get('key') or '').strip())
         if not buyer_name or not key:
             return jsonify({'success': False, 'error': 'buyer_name and key are required'}), 400
         cluster = get_cb_cluster()
@@ -666,37 +668,36 @@ def create_tour():
                 cluster = get_cb_cluster()
                 collection_path = get_profiles_path()
                 buyer_key = f"buyer::{buyer_name.lower()}"
-                # Ensure buyer doc exists
-                try:
-                    cluster.query(
+                txns = Transactions(cluster)
+                def txn_logic(ctx):
+                    # Ensure buyer doc exists (UPSERT avoids conflicts if it already exists)
+                    ctx.query(
                         f"""
-                        INSERT INTO {collection_path} (KEY, VALUE)
+                        UPSERT INTO {collection_path} (KEY, VALUE)
                         VALUES ($buyer_key, {{"saved_properties": [], "tours": []}})
                         """,
                         QueryOptions(named_parameters={'buyer_key': buyer_key})
-                    ).execute()
-                except Exception:
-                    pass
-                # Ensure tours array exists
-                cluster.query(
-                    f"""
-                    UPDATE {collection_path} AS b
-                    SET b.tours = IFMISSINGORNULL(b.tours, [])
-                    WHERE META(b).id = $buyer_key
-                    """,
-                    QueryOptions(named_parameters={'buyer_key': buyer_key})
-                ).execute()
-                # Append tour if not already present by id
-                cluster.query(
-                    f"""
-                    UPDATE {collection_path} AS b
-                    SET b.tours = ARRAY_APPEND(b.tours, $tour)
-                    WHERE META(b).id = $buyer_key
-                      AND NOT ANY t IN b.tours SATISFIES t.id = $tour_id END
-                    RETURNING 1
-                    """,
-                    QueryOptions(named_parameters={'buyer_key': buyer_key, 'tour_id': tour_id, 'tour': tour})
-                ).execute()
+                    )
+                    # Ensure tours array exists and append if missing
+                    ctx.query(
+                        f"""
+                        UPDATE {collection_path} AS b
+                        SET b.tours = IFMISSINGORNULL(b.tours, [])
+                        WHERE META(b).id = $buyer_key
+                        """,
+                        QueryOptions(named_parameters={'buyer_key': buyer_key})
+                    )
+                    ctx.query(
+                        f"""
+                        UPDATE {collection_path} AS b
+                        SET b.tours = ARRAY_APPEND(b.tours, $tour)
+                        WHERE META(b).id = $buyer_key
+                          AND NOT ANY t IN b.tours SATISFIES t.id = $tour_id END
+                        RETURNING 1
+                        """,
+                        QueryOptions(named_parameters={'buyer_key': buyer_key, 'tour_id': tour_id, 'tour': tour})
+                    )
+                txns.run(txn_logic)
             except Exception as e:
                 logger.error(f"Failed to persist tour to Couchbase: {e}")
 
@@ -800,7 +801,7 @@ def update_tour(tour_id):
                 cluster = get_cb_cluster()
                 collection_path = get_profiles_path()
                 buyer_key = f"buyer::{buyer_name.lower()}"
-                cluster.query(
+                res = cluster.query(
                     f"""
                     UPDATE {collection_path} AS b
                     SET b.tours = ARRAY CASE WHEN t.id = $tour_id THEN OBJECT_PUT(OBJECT_PUT(OBJECT_PUT(t, 'status', CASE WHEN $status_ok THEN $status ELSE t.status END), 'confirmed_time', CASE WHEN $has_confirmed THEN $confirmed ELSE t.confirmed_time END), 'preferred_time', CASE WHEN $has_preferred THEN $preferred ELSE t.preferred_time END) ELSE t END FOR t IN b.tours END
@@ -817,11 +818,6 @@ def update_tour(tour_id):
                         'preferred': preferred_time,
                         'has_preferred': bool(preferred_time),
                     })
-                ).execute()
-                # Fetch updated tour to return
-                res = cluster.query(
-                    f"SELECT FIRST t FOR t IN b.tours WHEN t.id = $tour_id END AS tour FROM {collection_path} AS b USE KEYS $buyer_key",
-                    QueryOptions(named_parameters={'buyer_key': buyer_key, 'tour_id': tour_id})
                 ).execute()
                 rows = list(res)
                 updated_from_cb = rows[0].get('tour') if rows else None

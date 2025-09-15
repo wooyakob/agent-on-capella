@@ -119,49 +119,8 @@ class ToursPage {
       </div>
     `;
     container.appendChild(card);
-    this.populateNearby(card, property);
-  }
-
-  async populateNearby(card, property) {
-    try {
-      const lat = property?.geo?.lat;
-      const lon = property?.geo?.lon;
-      const addr = property?.address || '';
-      const qs = new URLSearchParams();
-      if (typeof lat === 'number' && typeof lon === 'number') {
-        qs.set('lat', String(lat));
-        qs.set('lon', String(lon));
-      } else if (addr) {
-        qs.set('address', addr);
-      }
-      if ([...qs.keys()].length === 0) return;
-      const res = await fetch(`/api/nearby?${qs.toString()}`);
-      const data = await res.json();
-      if (!data.success) return;
-      const target = card.querySelector('.nearby');
-      if (!target) return;
-
-      const schools = data.schools || [];
-      const restaurants = data.restaurants || [];
-      const schoolHtml = schools.length ? `
-        <div class="nearby-section">
-          <div class="nearby-title">🎓 Nearby Schools</div>
-          <ul class="nearby-list">
-            ${schools.map(s => `<li><strong>${s.name}</strong> • ${s.rating ?? 'N/A'}⭐ • ${s.distance_km ?? '?'} km • ${s.address ?? ''}</li>`).join('')}
-          </ul>
-        </div>` : '';
-      const restaurantHtml = restaurants.length ? `
-        <div class="nearby-section">
-          <div class="nearby-title">🍽️ Nearby Restaurants</div>
-          <ul class="nearby-list">
-            ${restaurants.map(r => `<li><strong>${r.name}</strong> • ${r.rating ?? 'N/A'}⭐ • ${r.distance_km ?? '?'} km • ${r.address ?? ''}</li>`).join('')}
-          </ul>
-        </div>` : '';
-      target.innerHTML = schoolHtml + restaurantHtml;
-    } catch (e) {
-      // non-blocking
-      console.debug('Nearby fetch failed', e);
-    }
+    // Use shared Nearby utility
+    window.Nearby && window.Nearby.populate(card, property);
   }
 
   bindDetailActions() {
@@ -263,6 +222,8 @@ class ToursPage {
       this.tourPreferred.textContent = t.preferred_time || '-';
       this.tourConfirmed.textContent = t.confirmed_time || '-';
       this.renderPropertyCard(this.tourProperty, t.property || {});
+      // Populate nearby info via shared utility
+      window.Nearby && window.Nearby.populate(this.tourProperty, t.property || {});
     } catch (e) {
       console.error('Failed to load tour', e);
     }
@@ -279,6 +240,8 @@ class ToursPage {
       div.className = 'property-card';
       const p = t.property || {};
       const price = this.formatPrice(p.price);
+      const buyerName = (this.buyerNameInput?.value || '').trim();
+      const qp = buyerName ? `?buyer_name=${encodeURIComponent(buyerName)}` : '';
       div.innerHTML = `
         <div class="property-header">
           <h4>${p.name || 'Property'}</h4>
@@ -289,12 +252,14 @@ class ToursPage {
           <div class="property-specs">${p.bedrooms ? `🛏️ ${p.bedrooms}bd/` : ''}${p.bathrooms ? `${p.bathrooms}ba` : ''} ${p.house_sqft ? `• ${p.house_sqft} sqft` : ''}</div>
           <div class="tour-meta">Status: <strong>${t.status}</strong> • Preferred: ${t.preferred_time || '-'} • Confirmed: ${t.confirmed_time || '-'}</div>
           <div class="property-actions">
-            <a class="property-action-btn" href="/tours/${t.id}">View</a>
+            <a class="property-action-btn" href="/tours/${t.id}${qp}">View</a>
             <button class="property-action-btn" data-action="delete" data-id="${t.id}">Delete</button>
           </div>
         </div>
       `;
       this.toursContainer.appendChild(div);
+      // Optionally populate nearby for list items if desired
+      window.Nearby && window.Nearby.populate(div, p);
     });
 
     // Bind delete buttons in list
@@ -327,6 +292,14 @@ class ToursPage {
 
   async init() {
     const tourId = this.tourContext?.dataset?.tourId || '';
+    // Seed buyer input from URL params if provided
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      const buyerFromUrl = params.get('buyer_name');
+      if (buyerFromUrl && this.buyerNameInput) {
+        this.buyerNameInput.value = buyerFromUrl;
+      }
+    } catch {}
     this.bindPageControls();
     this.bindDetailActions();
     if (tourId) {
