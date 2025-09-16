@@ -13,6 +13,7 @@ import requests
 from langgraph.graph import StateGraph, START, END
 from langchain_aws import BedrockEmbeddings, ChatBedrock
 from langchain_openai import ChatOpenAI  # Fallback LLM
+from langchain_openai import OpenAIEmbeddings  # Fallback Embeddings
 from langchain_couchbase.vectorstores import CouchbaseSearchVectorStore
 from langchain_tavily import TavilySearch
 
@@ -62,7 +63,8 @@ class LangGraphRealEstateAgent:
             self._fallback_llm = None  # Lazy init
             self._fallback_llm_name = os.getenv("FALLBACK_LLM")
             
-            self.embeddings = BedrockEmbeddings(model_id="amazon.titan-embed-text-v2:0")
+            # Prefer Bedrock Titan embeddings with OpenAI fallback (dim 1024 to match index)
+            self.embeddings = self._init_embeddings()
 
             auth = PasswordAuthenticator(os.getenv("CB_USERNAME"), os.getenv("CB_PASSWORD"))
             options = ClusterOptions(auth)
@@ -116,11 +118,95 @@ class LangGraphRealEstateAgent:
                 model=model_name,
                 temperature=0.7,
             )
-            logger.info(f"Initialized fallback OpenAI LLM: {self._fallback_llm_name}")
+            logger.info(f"Initialized fallback OpenAI LLM: {model_name}")
         except Exception as e:
             logger.error(f"Failed to initialize fallback LLM: {e}")
             self._fallback_llm = None
         return self._fallback_llm
+
+    def _init_embeddings(self):
+        """Initialize embeddings with Bedrock Titan primary and OpenAI fallback.
+        Returns an embeddings object compatible with LangChain's embed_query/documents APIs.
+        OpenAI fallback uses text-embedding-3-small with dimensions matching the Couchbase index (1024).
+        """
+        # Small wrapper to transparently fall back on runtime errors
+        class ResilientEmbeddings:
+            def __init__(self, primary, fallback, log):
+                self._primary = primary
+                self._fallback = fallback
+                self._using_fallback = False
+                self._log = log
+
+            def _ensure_provider(self):
+                # If primary failed previously, keep using fallback
+                if self._using_fallback:
+                    return self._fallback
+                return self._primary or self._fallback
+
+            def _switch_to_fallback(self, err: Exception):
+                if not self._fallback:
+                    raise err
+                self._log.warning(f"Primary embeddings failed; switching to OpenAI fallback. Error: {err}")
+                self._using_fallback = True
+                return self._fallback
+
+            def embed_query(self, text: str):
+                provider = self._ensure_provider()
+                try:
+                    return provider.embed_query(text)
+                except Exception as e:
+                    provider = self._switch_to_fallback(e)
+                    return provider.embed_query(text)
+
+            def embed_documents(self, texts):
+                provider = self._ensure_provider()
+                try:
+                    return provider.embed_documents(texts)
+                except Exception as e:
+                    provider = self._switch_to_fallback(e)
+                    return provider.embed_documents(texts)
+
+        # Try to construct providers
+        primary = None
+        try:
+            region = os.getenv("AWS_REGION", "us-east-2")
+            titan_model = os.getenv("BEDROCK_EMBEDDING_MODEL", "amazon.titan-embed-text-v2:0")
+            logger.info(f"Initializing Bedrock embeddings: model={titan_model} region={region}")
+            primary = BedrockEmbeddings(model_id=titan_model, region_name=region)
+        except Exception as e:
+            logger.warning(f"Bedrock embeddings init failed: {e}")
+
+        fallback = None
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if openai_key:
+            try:
+                oa_model = (
+                    os.getenv("FALLBACK_EMBEDDING_MODEL")
+                    or os.getenv("OPENAI_EMBEDDING_MODEL")
+                    or "text-embedding-3-small"
+                )
+                # Prefer explicit fallback dims env var, else OPENAI_EMBEDDING_DIMENSIONS, else 1024
+                oa_dims_env = (
+                    os.getenv("FALLBACK_EMBEDDING_DIMENSIONS")
+                    or os.getenv("OPENAI_EMBEDDING_DIMENSIONS")
+                    or ""
+                )
+                oa_dims = int(oa_dims_env) if oa_dims_env.strip() else 1024
+                logger.info(f"Initializing OpenAI embeddings: model={oa_model} dims={oa_dims}")
+                fallback = OpenAIEmbeddings(model=oa_model, dimensions=oa_dims)
+            except Exception as e:
+                logger.error(f"Failed to initialize OpenAI embeddings: {e}")
+
+        if primary and fallback:
+            return ResilientEmbeddings(primary, fallback, logger)
+        if primary and not fallback:
+            # No fallback available; return primary (may error later)
+            return primary
+        if fallback:
+            # Bedrock unavailable at init; use OpenAI directly
+            return fallback
+        # Neither available
+        raise RuntimeError("No embeddings available: neither Bedrock nor OpenAI could be initialized")
 
     def _safe_llm_invoke(self, payload):
         """Invoke primary LLM; on failure, fall back to OpenAI if configured.
