@@ -9,8 +9,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const isHome = linkPath === '/' && currentPath === '/';
       const isSaved = linkPath.startsWith('/saved') && currentPath.startsWith('/saved');
       const isTours = linkPath.startsWith('/tours') && currentPath.startsWith('/tours');
+      const isBuyers = linkPath.startsWith('/buyers') && currentPath.startsWith('/buyers');
       const exactMatch = linkPath === currentPath;
-      if (isHome || isSaved || isTours || exactMatch) {
+      if (isHome || isSaved || isTours || isBuyers || exactMatch) {
         link.setAttribute('aria-current', 'page');
         link.classList.add('active');
       } else {

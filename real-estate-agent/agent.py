@@ -635,8 +635,35 @@ class LangGraphRealEstateAgent:
                 logger.error(f"Fallback search also failed: {fallback_error}")
                 return []
     
+    def _profiles_collection_path(self) -> str:
+        """Return N1QL path to profiles.buyers.2025 (overridable via env)."""
+        bucket = os.getenv("CB_PROFILES_BUCKET", "profiles")
+        scope = os.getenv("CB_PROFILES_SCOPE", "buyers")
+        collection = os.getenv("CB_PROFILES_COLLECTION", "2025")
+        return f"`{bucket}`.`{scope}`.`{collection}`"
+
     def load_buyer_profile(self, buyer_name: str) -> Dict[str, Any]:
-        """Load buyer profile from JSON file"""
+        """Load buyer profile, preferring Couchbase (profiles.buyers.2025) and
+        falling back to the local JSON file if not found.
+        """
+        # Try Couchbase first
+        try:
+            if getattr(self, 'cluster', None) and buyer_name:
+                path = self._profiles_collection_path()
+                buyer_key = f"buyer::{buyer_name.lower()}"
+                res = self.cluster.query(
+                    f"SELECT b AS profile FROM {path} AS b USE KEYS $k",
+                    QueryOptions(named_parameters={'k': buyer_key})
+                ).execute()
+                rows = list(res)
+                if rows:
+                    profile = rows[0].get('profile') or {}
+                    if profile:
+                        return profile
+        except Exception as e:
+            logger.info(f"Couchbase profile lookup failed, falling back to JSON: {e}")
+        
+        # Fallback: JSON file
         try:
             profile_path = os.path.join(
                 os.path.dirname(os.path.dirname(__file__)), 
@@ -649,7 +676,7 @@ class LangGraphRealEstateAgent:
                         return profile
             return {}
         except Exception as e:
-            logger.error(f"Error loading buyer profile: {e}")
+            logger.error(f"Error loading buyer profile from JSON: {e}")
             return {}
     
     def analyze_user_intent(self, state: RealEstateAgentState) -> RealEstateAgentState:

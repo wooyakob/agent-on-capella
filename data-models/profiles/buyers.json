@@ -32,16 +32,6 @@
     "location": "Washington"
   },
   {
-    "buyer": "Daniel James",
-    "budget": {
-      "min": 1200000,
-      "max": 1500000
-    },
-    "bedrooms": 3,
-    "bathrooms": 3,
-    "location": "Vancouver"
-  },
-  {
     "buyer": "Kevin Farley",
     "budget": {
       "min": 1100000,
