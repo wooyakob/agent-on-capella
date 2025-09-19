@@ -645,6 +645,8 @@ class LangGraphRealEstateAgent:
     def load_buyer_profile(self, buyer_name: str) -> Dict[str, Any]:
         """Load buyer profile, preferring Couchbase (profiles.buyers.2025) and
         falling back to the local JSON file if not found.
+        Only returns a profile if it has a 'buyer' field; otherwise treats as not found
+        to avoid partial/undefined profiles created as placeholders (e.g., only saved_properties).
         """
         # Try Couchbase first
         try:
@@ -658,7 +660,8 @@ class LangGraphRealEstateAgent:
                 rows = list(res)
                 if rows:
                     profile = rows[0].get('profile') or {}
-                    if profile:
+                    # Ensure core fields exist; otherwise treat as not found
+                    if profile.get('buyer'):
                         return profile
         except Exception as e:
             logger.info(f"Couchbase profile lookup failed, falling back to JSON: {e}")

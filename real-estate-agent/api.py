@@ -403,51 +403,135 @@ def save_property():
         session_id = session.get('session_id')
         if not session_id:
             return jsonify({'success': False, 'error': 'Session not found'}), 400
-        tour_id = str(uuid.uuid4())
-        tour = {
-            'id': tour_id,
-            'session_id': session_id,
-            'buyer_name': buyer_name or None,
-            'property': prop,
-            'status': 'pending',  # pending | accepted | confirmed | declined | cancelled
-            'preferred_time': None,
-            'confirmed_time': None,
-            'created_at': datetime.now().isoformat(),
-            'updated_at': datetime.now().isoformat(),
-        }
-        tour_requests.setdefault(session_id, {})[tour_id] = tour
+        # Build a robust deduplication key
+        addr = (prop.get('address') or (prop.get('location') or {}).get('address') or '').strip().lower()
+        name = (prop.get('name') or prop.get('title') or '').strip().lower()
+        price = prop.get('price')
+        # Key priority: id → address|name → address → name|price
+        if prop.get('id'):
+            key = prop.get('id')
+        elif addr and name:
+            key = f"{addr}|{name}"
+        elif addr:
+            key = addr
+        elif name and price is not None:
+            key = f"{name}|{price}"
+        else:
+            key = ''
+        if not str(key).strip():
+            return jsonify({'success': False, 'error': 'Invalid property payload'}), 400
+        logger.info(f"SaveProperty: session={session_id} buyer='{buyer_name}' key='{key}' addr='{addr}' name='{name}' price='{price}'")
+        saved_properties.setdefault(session_id, [])
+        # Prevent duplicates by key
+        if not any((
+            p.get('id')
+            or (
+                ((p.get('address') or (p.get('location') or {}).get('address') or '').strip().lower())
+                and (p.get('name') or p.get('title'))
+                and f"{(p.get('address') or (p.get('location') or {}).get('address') or '').strip().lower()}|{(p.get('name') or p.get('title')).strip().lower()}"
+            )
+            or ((p.get('address') or (p.get('location') or {}).get('address') or '').strip().lower())
+            or (
+                (p.get('name') or p.get('title')) and (p.get('price') is not None)
+                and f"{(p.get('name') or p.get('title')).strip().lower()}|{p.get('price')}"
+            )
+        ) == key for p in saved_properties[session_id]):
+            saved_properties[session_id].append(prop)
 
-        # Persist to Couchbase as an independent tour document if buyer_name provided
+        # Also persist to Couchbase buyer document if buyer_name provided
+        persisted = False
+        saved_count_profile = None
         if buyer_name:
             try:
                 cluster = get_cb_cluster()
-                profiles_path = get_profiles_path()
-                tours_path = get_tours_path()
+                collection_path = get_profiles_path()
                 buyer_key = f"buyer::{buyer_name.lower()}"
-                # Ensure buyer doc exists (non-destructive). Try a simple INSERT; ignore if it already exists.
+                # Build minimal snapshot
+                snapshot = {
+                    'id': prop.get('id'),
+                    'name': prop.get('name') or prop.get('title'),
+                    'address': prop.get('address') or (prop.get('location') or {}).get('address'),
+                    'price': prop.get('price'),
+                    'bedrooms': prop.get('bedrooms'),
+                    'bathrooms': prop.get('bathrooms'),
+                    'house_sqft': prop.get('house_sqft') or prop.get('sqft'),
+                    'dedupe_key': key,
+                    'saved_at': datetime.now().isoformat(),
+                    # Linkage/provenance
+                    'saved_by_key': buyer_key,
+                    'saved_by_name': buyer_name,
+                    'session_id': session_id
+                }
+                # Ensure buyer document exists WITHOUT overwriting existing content
+                # 1) Try a plain INSERT; if the doc exists, ignore the error
                 try:
                     cluster.query(
-                        f"INSERT INTO {profiles_path} (KEY, VALUE) VALUES ($buyer_key, {{\"saved_properties\": [], \"tours\": []}})",
-                        QueryOptions(named_parameters={'buyer_key': buyer_key})
+                        f"""
+                        INSERT INTO {collection_path} (KEY, VALUE)
+                        VALUES ($buyer_key, {{ "saved_properties": [] }})
+                        """,
+                        QueryOptions(named_parameters={
+                            'buyer_key': buyer_key
+                        })
                     ).execute()
                 except Exception:
+                    # Document likely exists — ignore
                     pass
-                # Persist tour as its own document so it can be reliably fetched by ID
+                # 2) If doc exists but array missing, initialize it
+                cluster.query(
+                    f"""
+                    UPDATE {collection_path} AS b
+                    SET b.saved_properties = IFMISSINGORNULL(b.saved_properties, [])
+                    WHERE META(b).id = $buyer_key
+                    """,
+                    QueryOptions(named_parameters={
+                        'buyer_key': buyer_key
+                    })
+                ).execute()
+                # Append snapshot if not duplicate
+                qr = cluster.query(
+                    f"""
+                    UPDATE {collection_path} AS b
+                    SET b.saved_properties = ARRAY_APPEND(b.saved_properties, $prop_snapshot)
+                    WHERE META(b).id = $buyer_key
+                      AND NOT ANY p IN b.saved_properties SATISFIES
+                        COALESCE(p.dedupe_key, IFMISSINGORNULL(p.id, p.address || '|' || p.name)) = $dedupe_key
+                      END
+                    RETURNING ARRAY_LENGTH(b.saved_properties) AS saved_count
+                    """,
+                    QueryOptions(named_parameters={
+                        'buyer_key': buyer_key,
+                        'prop_snapshot': snapshot,
+                        'dedupe_key': key
+                    })
+                ).execute()
                 try:
-                    tour_key = f"tour::{tour_id}"
-                    cluster.query(
-                        f"UPSERT INTO {tours_path} (KEY, VALUE) VALUES ($tour_key, $tour)",
-                        QueryOptions(named_parameters={'tour_key': tour_key, 'tour': tour})
-                    ).execute()
-                except Exception as e:
-                    logger.error(f"Failed to upsert tour doc: {e}")
+                    upd_rows = list(qr)
+                    logger.info(f"SaveProperty: update rows={upd_rows}")
+                except Exception:
+                    logger.info("SaveProperty: unable to log update rows")
+                # Get current count
+                res = cluster.query(
+                    f"SELECT ARRAY_LENGTH(b.saved_properties) AS cnt FROM {collection_path} AS b USE KEYS $buyer_key",
+                    QueryOptions(named_parameters={'buyer_key': buyer_key})
+                ).execute()
+                rows = list(res)
+                if rows:
+                    saved_count_profile = rows[0].get('cnt')
+                persisted = True
             except Exception as e:
-                logger.error(f"Failed to persist tour to Couchbase: {e}")
+                logger.error(f"Failed to persist saved property to Couchbase: {e}")
 
-        return jsonify({'success': True, 'tour_id': tour_id})
+        return jsonify({
+            'success': True,
+            'saved_count': len(saved_properties[session_id]),
+            'profile_persisted': persisted,
+            'profile_saved_count': saved_count_profile,
+            'dedupe_key': key
+        })
     except Exception as e:
-        logger.error(f"Create tour error: {e}")
-        return jsonify({'success': False, 'error': 'Failed to create tour'}), 500
+        logger.error(f"Save property error: {e}")
+        return jsonify({'success': False, 'error': 'Failed to save property'}), 500
 
 @app.route('/api/hide_property', methods=['POST'])
 def hide_property():
