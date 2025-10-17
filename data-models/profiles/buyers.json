@@ -1,0 +1,44 @@
+[
+  {
+    "buyer": "Jake Wood",
+    "budget": {
+      "min": 750000,
+      "max": 950000
+    },
+    "bedrooms": 1,
+    "bathrooms": 2,
+    "location": "San Diego",
+    "saved_properties": [
+      {
+        "id": null,
+        "name": "Suburban Family Home",
+        "address": "9876 Meadow Dr, San Diego, CA 92126",
+        "price": "$849,000",
+        "bedrooms": 4,
+        "bathrooms": 3,
+        "house_sqft": 2200,
+        "saved_at": "2025-08-29T09:11:35.480367"
+      }
+    ]
+  },
+  {
+    "buyer": "Seong Cho",
+    "budget": {
+      "min": 850000,
+      "max": 1200000
+    },
+    "bedrooms": 2,
+    "bathrooms": 2,
+    "location": "Washington"
+  },
+  {
+    "buyer": "Kevin Farley",
+    "budget": {
+      "min": 1100000,
+      "max": 1350000
+    },
+    "bedrooms": 4,
+    "bathrooms": 2,
+    "location": "Washington"
+  }
+]

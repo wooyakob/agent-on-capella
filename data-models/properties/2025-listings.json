@@ -1,0 +1,439 @@
+[
+  {
+    "name": "Thistle Hill Place",
+    "description": "Welcome to 11649 Thistle Hill, nestled in the exclusive gated community of Torrey Woods Estates. This exceptional home offers the unique advantage of choice between two top-rated elementary schools: Ocean Air or Torrey Hills. Gated courtyard entry invites you into a freshly painted home with designer finishes. Grand formal entry with cathedral ceilings open to the elegant formal living and dining rooms with dual-sided fireplace. New luxury vinyl plank flooring, custom lighting, and an abundance of natural light throughout. The chef’s kitchen is a true showstopper, featuring an oversized island with prep sink, pendant lighting, Quartz countertops, a spacious eat-in area, walk-in pantry, built-in desk, premium Viking appliances including a 6-burner cooktop with hood and professional-grade refrigerator—all seamlessly flowing into the family room with fireplace.Private backyard landscaped with gorgeous, mature greenery and low-maintenance turf—perfect for relaxing or entertaining. First floor offers a full en-suite bedroom, custom wine cellar, powder room with new vanity plus a versatile bonus room perfect as an office or playroom. Upstairs, you'll find a massive bonus room with custom French glass doors, offering additional space for a second office, media room, or lounge. Expansive primary suite features a generous sitting area and a spa-inspired bathroom with dual vanities, soaking tub, walk-in shower, bidet toilet, and large walk-in closet.  Two additional beds, a full bath, and a spacious laundry room with linen storage complete the second floor. Additional upgrades include EV car charger, smart locks & Nest thermostats, updated kitchen countertops, sinks, and fixtures, new flooring, paint, lighting, turf and professional landscaping.  All this in a premier location just minutes from Torrey Pines Beach, One Paseo, shopping, dining, and within the top-rated Del Mar Union and San Dieguito Union High School Districts. Don’t miss the opportunity to call this extraordinary home yours!",
+    "price": "$3,049,900",
+    "bedrooms": 5,
+    "bathrooms": 5,
+    "house_sqft": 4327,
+    "lot_sqft": 8712,
+    "HOA_fees": "$245",
+    "date_built": 2001,
+    "listing_updated": "July 30, 2025 at 03:45pm",
+    "listed_by": "Kurt Wannebo DRE #01468255 888-473-7324, Wannebo Real Estate Group. Felicia A Jerbasi DRE #01443264 858-414-1617, Wannebo Real Estate Group",
+    "address": "11649 Thistle Hill Pl, San Diego, CA 92130",
+    "url": "https://www.zillow.com/homedetails/11649-Thistle-Hill-Pl-San-Diego-CA-92130/54888294_zpid/",
+    "geo": {
+      "lat": 32.930523,
+      "lon": -117.222569
+    }
+  },
+  {
+    "name": "Sunset Vista Townhome",
+    "description": "Modern 3-bedroom townhome in the heart of Mission Valley with stunning sunset views. Open concept living with vaulted ceilings and a private patio. Walking distance to trolley stations, shopping, and dining. Perfect for first-time buyers or investors.",
+    "price": "$825,000",
+    "bedrooms": 3,
+    "bathrooms": 2.5,
+    "house_sqft": 1650,
+    "lot_sqft": 2200,
+    "HOA_fees": "$425",
+    "date_built": 2019,
+    "listing_updated": "January 15, 2025 at 09:30am",
+    "listed_by": "Maria Rodriguez DRE #01234567 619-555-0123, Vista Real Estate Group",
+    "address": "4820 Sunset Ridge Dr, San Diego, CA 92108",
+    "url": "https://www.zillow.com/homedetails/4820-Sunset-Ridge-Dr-San-Diego-CA-92108/123456789_zpid/",
+    "geo": {
+      "lat": 32.754,
+      "lon": -117.120
+    }
+  },
+  {
+    "name": "Hillcrest Modern Condo",
+    "description": "Stylish 2-bedroom condo in vibrant Hillcrest neighborhood. Recently renovated with stainless steel appliances, granite countertops, and hardwood floors. Rooftop deck with city views. Walk to Balboa Park and downtown.",
+    "price": "$750,000",
+    "bedrooms": 2,
+    "bathrooms": 2,
+    "house_sqft": 1200,
+    "lot_sqft": 0,
+    "HOA_fees": "$550",
+    "date_built": 2015,
+    "listing_updated": "January 12, 2025 at 02:15pm",
+    "listed_by": "David Chen DRE #01987654 858-555-0456, Urban Properties LLC",
+    "address": "3456 Park Blvd, San Diego, CA 92103",
+    "url": "https://www.zillow.com/homedetails/3456-Park-Blvd-San-Diego-CA-92103/987654321_zpid/",
+    "geo": {
+      "lat": 32.733,
+      "lon": -117.144
+    }
+  },
+  {
+    "name": "Pacific Beach Cottage",
+    "description": "Charming 2-bedroom beach cottage just blocks from the ocean. Original hardwood floors, cozy fireplace, and a large backyard perfect for entertaining. Rare find in this prime location with potential for expansion.",
+    "price": "$1,295,000",
+    "bedrooms": 2,
+    "bathrooms": 1,
+    "house_sqft": 900,
+    "lot_sqft": 5000,
+    "HOA_fees": "$0",
+    "date_built": 1954,
+    "listing_updated": "January 18, 2025 at 11:45am",
+    "listed_by": "Sarah Johnson DRE #01345678 858-555-0789, Coastal Realty Group",
+    "address": "852 Tourmaline St, San Diego, CA 92109",
+    "url": "https://www.zillow.com/homedetails/852-Tourmaline-St-San-Diego-CA-92109/456789123_zpid/",
+    "geo": {
+      "lat": 32.803,
+      "lon": -117.253
+    }
+  },
+  {
+    "name": "Mission Valley Urban Loft",
+    "description": "Contemporary 2-bedroom loft in converted warehouse with exposed brick walls and industrial features. High ceilings, concrete floors, and floor-to-ceiling windows. Walking distance to SDSU and trolley lines.",
+    "price": "$895,000",
+    "bedrooms": 2,
+    "bathrooms": 2,
+    "house_sqft": 1400,
+    "lot_sqft": 0,
+    "HOA_fees": "$650",
+    "date_built": 2020,
+    "listing_updated": "January 20, 2025 at 04:20pm",
+    "listed_by": "Michael Torres DRE #01678901 619-555-0234, Metro Living Realty",
+    "address": "5678 Mission Center Rd, San Diego, CA 92108",
+    "url": "https://www.zillow.com/homedetails/5678-Mission-Center-Rd-San-Diego-CA-92108/234567890_zpid/",
+    "geo": {
+      "lat": 32.768,
+      "lon": -117.127
+    }
+  },
+  {
+    "name": "Luxury Downtown Penthouse",
+    "description": "Stunning 3-bedroom penthouse in the heart of downtown San Diego. Floor-to-ceiling windows with panoramic bay and city views. High-end finishes throughout including marble bathrooms and chef's kitchen. Building amenities include gym, pool, and concierge.",
+    "price": "$2,850,000",
+    "bedrooms": 3,
+    "bathrooms": 3,
+    "house_sqft": 2500,
+    "lot_sqft": 0,
+    "HOA_fees": "$1,200",
+    "date_built": 2018,
+    "listing_updated": "January 14, 2025 at 01:30pm",
+    "listed_by": "Jennifer Kim DRE #01789012 858-555-0567, Elite Properties International",
+    "address": "1234 1st Ave, San Diego, CA 92101",
+    "url": "https://www.zillow.com/homedetails/1234-1st-Ave-San-Diego-CA-92101/345678901_zpid/",
+    "geo": {
+      "lat": 32.715,
+      "lon": -117.161
+    }
+  },
+  {
+    "name": "Suburban Family Home",
+    "description": "Spacious 4-bedroom family home in quiet Mira Mesa neighborhood. Large backyard with pool, updated kitchen with granite counters, and formal dining room. Great schools and family-friendly community.",
+    "price": "$849,000",
+    "bedrooms": 4,
+    "bathrooms": 3,
+    "house_sqft": 2200,
+    "lot_sqft": 7500,
+    "HOA_fees": "$150",
+    "date_built": 1995,
+    "listing_updated": "January 16, 2025 at 10:15am",
+    "listed_by": "Robert Wilson DRE #01890123 858-555-0678, Family First Realty",
+    "address": "9876 Meadow Dr, San Diego, CA 92126",
+    "url": "https://www.zillow.com/homedetails/9876-Meadow-Dr-San-Diego-CA-92126/567890123_zpid/",
+    "geo": {
+      "lat": 32.908,
+      "lon": -117.145
+    }
+  },
+  {
+    "name": "Ocean View Villa",
+    "description": "Magnificent 5-bedroom villa with breathtaking ocean views in La Jolla. Private gated entrance, infinity pool, wine cellar, and multiple outdoor entertaining areas. Recently renovated with the finest materials and fixtures.",
+    "price": "$4,200,000",
+    "bedrooms": 5,
+    "bathrooms": 6,
+    "house_sqft": 4800,
+    "lot_sqft": 12000,
+    "HOA_fees": "$0",
+    "date_built": 2005,
+    "listing_updated": "January 19, 2025 at 03:00pm",
+    "listed_by": "Amanda Foster DRE #01901234 858-555-0789, Luxury Coastal Properties",
+    "address": "7890 Coast Blvd, La Jolla, CA 92037",
+    "url": "https://www.zillow.com/homedetails/7890-Coast-Blvd-La-Jolla-CA-92037/678901234_zpid/",
+    "geo": {
+      "lat": 32.847,
+      "lon": -117.275
+    }
+  },
+  {
+    "name": "Affordable Starter Home",
+    "description": "Cozy 3-bedroom starter home in Chula Vista with great potential. Needs some TLC but perfect for buyers looking to build equity. Large lot with fruit trees and room for expansion. Close to schools and shopping.",
+    "price": "$649,000",
+    "bedrooms": 3,
+    "bathrooms": 2,
+    "house_sqft": 1150,
+    "lot_sqft": 6000,
+    "HOA_fees": "$0",
+    "date_built": 1978,
+    "listing_updated": "January 17, 2025 at 08:45am",
+    "listed_by": "Carlos Martinez DRE #01012345 619-555-0890, First Time Buyer Specialists",
+    "address": "5432 Elm St, Chula Vista, CA 91910",
+    "url": "https://www.zillow.com/homedetails/5432-Elm-St-Chula-Vista-CA-91910/789012345_zpid/",
+    "geo": {
+      "lat": 32.640,
+      "lon": -117.084
+    }
+  },
+  {
+    "name": "Modern Craftsman Bungalow",
+    "description": "Beautifully restored 1920s craftsman bungalow in Normal Heights. Original hardwood floors, built-in cabinetry, and period details throughout. Updated kitchen and bathrooms while maintaining historic charm. Walk to local cafes and shops.",
+    "price": "$925,000",
+    "bedrooms": 3,
+    "bathrooms": 2,
+    "house_sqft": 1650,
+    "lot_sqft": 5500,
+    "HOA_fees": "$0",
+    "date_built": 1924,
+    "listing_updated": "January 13, 2025 at 12:30pm",
+    "listed_by": "Lisa Thompson DRE #01123456 619-555-0901, Historic Home Specialists",
+    "address": "3210 Normal St, San Diego, CA 92103",
+    "url": "https://www.zillow.com/homedetails/3210-Normal-St-San-Diego-CA-92103/890123456_zpid/",
+    "geo": {
+      "lat": 32.741,
+      "lon": -117.131
+    }
+  },
+  {
+    "name": "Investment Duplex",
+    "description": "Great investment opportunity! Well-maintained duplex with two 2-bedroom units. Both units recently updated with new flooring and appliances. Strong rental history and potential for house hacking. Close to UCSD and employment centers.",
+    "price": "$1,150,000",
+    "bedrooms": 4,
+    "bathrooms": 4,
+    "house_sqft": 2400,
+    "lot_sqft": 6500,
+    "HOA_fees": "$0",
+    "date_built": 1985,
+    "listing_updated": "January 21, 2025 at 05:15pm",
+    "listed_by": "Kevin Brown DRE #01234567 858-555-0123, Investment Property Pros",
+    "address": "6543 Investment Way, San Diego, CA 92122",
+    "url": "https://www.zillow.com/homedetails/6543-Investment-Way-San-Diego-CA-92122/901234567_zpid/",
+    "geo": {
+      "lat": 32.871,
+      "lon": -117.208
+    }
+  },
+  {
+    "name": "Seattle Belltown High-Rise",
+    "description": "Sophisticated 2-bedroom condo in the heart of Seattle's Belltown neighborhood. Floor-to-ceiling windows with stunning Elliott Bay views. Modern kitchen with quartz countertops, in-unit laundry, and building amenities including rooftop deck and fitness center. Walk to Pike Place Market and waterfront.",
+    "price": "$925,000",
+    "bedrooms": 2,
+    "bathrooms": 2,
+    "house_sqft": 1350,
+    "lot_sqft": 0,
+    "HOA_fees": "$785",
+    "date_built": 2016,
+    "listing_updated": "January 22, 2025 at 10:30am",
+    "listed_by": "Rachel Stevens MLS #12345678 206-555-0123, Urban Seattle Realty",
+    "address": "2101 3rd Ave, Seattle, WA 98121",
+    "url": "https://www.zillow.com/homedetails/2101-3rd-Ave-Seattle-WA-98121/48765432_zpid/",
+    "geo": {
+      "lat": 47.615,
+      "lon": -122.344
+    }
+  },
+  {
+    "name": "Capitol Hill Victorian Townhouse",
+    "description": "Beautifully renovated 3-bedroom Victorian townhouse in trendy Capitol Hill. Original hardwood floors, exposed brick walls, and modern updates throughout. Private garden, updated kitchen with stainless appliances, and walking distance to vibrant nightlife and dining scene.",
+    "price": "$1,175,000",
+    "bedrooms": 3,
+    "bathrooms": 2.5,
+    "house_sqft": 2100,
+    "lot_sqft": 2500,
+    "HOA_fees": "$0",
+    "date_built": 1908,
+    "listing_updated": "January 20, 2025 at 02:45pm",
+    "listed_by": "Mark Johnson MLS #23456789 206-555-0234, Historic Seattle Properties",
+    "address": "1425 E Pine St, Seattle, WA 98122",
+    "url": "https://www.zillow.com/homedetails/1425-E-Pine-St-Seattle-WA-98122/87654321_zpid/",
+    "geo": {
+      "lat": 47.614,
+      "lon": -122.314
+    }
+  },
+  {
+    "name": "Fremont Craftsman Family Home",
+    "description": "Classic 4-bedroom Craftsman home in family-friendly Fremont neighborhood. Original built-ins, hardwood floors, and period details preserved. Large backyard with vegetable garden, updated kitchen, and finished basement. Walk to Fremont Sunday Market and local shops.",
+    "price": "$1,285,000",
+    "bedrooms": 4,
+    "bathrooms": 3,
+    "house_sqft": 2650,
+    "lot_sqft": 6000,
+    "HOA_fees": "$0",
+    "date_built": 1925,
+    "listing_updated": "January 18, 2025 at 09:15am",
+    "listed_by": "Susan Kim MLS #34567890 206-555-0345, Family Home Specialists",
+    "address": "4512 Fremont Ave N, Seattle, WA 98103",
+    "url": "https://www.zillow.com/homedetails/4512-Fremont-Ave-N-Seattle-WA-98103/56789012_zpid/",
+    "geo": {
+      "lat": 47.661,
+      "lon": -122.351
+    }
+  },
+  {
+    "name": "Tacoma Waterfront Condo",
+    "description": "Modern 2-bedroom waterfront condo with panoramic Puget Sound views. Open-concept living with gas fireplace, gourmet kitchen with granite counters, and private balcony. Building features marina access, gym, and concierge. Close to downtown Tacoma revitalization.",
+    "price": "$875,000",
+    "bedrooms": 2,
+    "bathrooms": 2,
+    "house_sqft": 1425,
+    "lot_sqft": 0,
+    "HOA_fees": "$650",
+    "date_built": 2019,
+    "listing_updated": "January 19, 2025 at 03:30pm",
+    "listed_by": "David Park MLS #45678901 253-555-0456, Waterfront Properties WA",
+    "address": "1768 Dock St, Tacoma, WA 98402",
+    "url": "https://www.zillow.com/homedetails/1768-Dock-St-Tacoma-WA-98402/34567890_zpid/",
+    "geo": {
+      "lat": 47.258,
+      "lon": -122.459
+    }
+  },
+  {
+    "name": "Bellevue Tech Hub Townhome",
+    "description": "Contemporary 4-bedroom townhome in Bellevue's tech corridor. Open floor plan with vaulted ceilings, chef's kitchen with island, and attached 2-car garage. Walking distance to Microsoft and other tech companies. Excellent schools and family amenities.",
+    "price": "$1,150,000",
+    "bedrooms": 4,
+    "bathrooms": 3.5,
+    "house_sqft": 2350,
+    "lot_sqft": 1800,
+    "HOA_fees": "$350",
+    "date_built": 2018,
+    "listing_updated": "January 17, 2025 at 11:20am",
+    "listed_by": "Jennifer Chen MLS #56789012 425-555-0567, Tech City Realty",
+    "address": "15432 NE 8th St, Bellevue, WA 98008",
+    "url": "https://www.zillow.com/homedetails/15432-NE-8th-St-Bellevue-WA-98008/23456789_zpid/",
+    "geo": {
+      "lat": 47.613,
+      "lon": -122.132
+    }
+  },
+  {
+    "name": "Vancouver West End Penthouse",
+    "description": "Luxury 3-bedroom penthouse in Vancouver's prestigious West End. Panoramic views of English Bay and North Shore mountains. High-end finishes throughout, chef's kitchen with Sub-Zero appliances, and private rooftop terrace. Steps from Stanley Park and beaches.",
+    "price": "$1,450,000",
+    "bedrooms": 3,
+    "bathrooms": 3,
+    "house_sqft": 2200,
+    "lot_sqft": 0,
+    "HOA_fees": "$925",
+    "date_built": 2020,
+    "listing_updated": "January 16, 2025 at 01:45pm",
+    "listed_by": "Michael Wong MLS #67890123 604-555-0678, Vancouver Luxury Properties",
+    "address": "1188 Howe St, Vancouver, BC V6Z 2S8",
+    "url": "https://www.realtor.ca/real-estate/23456780/1188-howe-st-vancouver-bc-v6z-2s8",
+    "geo": {
+      "lat": 49.279,
+      "lon": -123.124
+    }
+  },
+  {
+    "name": "Kitsilano Heritage Character Home",
+    "description": "Charming 4-bedroom heritage character home in sought-after Kitsilano. Original hardwood floors, leaded glass windows, and period details throughout. Large kitchen with eating area, separate dining room, and beautiful garden. Walking distance to beaches and 4th Avenue shopping.",
+    "price": "$1,295,000",
+    "bedrooms": 4,
+    "bathrooms": 3,
+    "house_sqft": 2450,
+    "lot_sqft": 4500,
+    "HOA_fees": "$0",
+    "date_built": 1928,
+    "listing_updated": "January 21, 2025 at 04:15pm",
+    "listed_by": "Sarah Chen MLS #78901234 604-555-0789, Heritage Home Specialists",
+    "address": "2234 W 4th Ave, Vancouver, BC V6K 1N6",
+    "url": "https://www.realtor.ca/real-estate/34567891/2234-w-4th-ave-vancouver-bc-v6k-1n6",
+    "geo": {
+      "lat": 49.268,
+      "lon": -123.155
+    }
+  },
+  {
+    "name": "North Vancouver Mountain View House",
+    "description": "Stunning 3-bedroom house with breathtaking mountain and city views. Open concept living with vaulted ceilings, modern kitchen with granite counters, and large deck perfect for entertaining. Double garage and easy access to hiking trails and ski hills.",
+    "price": "$1,385,000",
+    "bedrooms": 3,
+    "bathrooms": 3,
+    "house_sqft": 2100,
+    "lot_sqft": 6500,
+    "HOA_fees": "$0",
+    "date_built": 2015,
+    "listing_updated": "January 14, 2025 at 12:00pm",
+    "listed_by": "Robert Kim MLS #89012345 604-555-0890, Mountain View Properties",
+    "address": "1456 Mountain Hwy, North Vancouver, BC V7J 2Y4",
+    "url": "https://www.realtor.ca/real-estate/45678902/1456-mountain-hwy-north-vancouver-bc-v7j-2y4",
+    "geo": {
+      "lat": 49.333,
+      "lon": -123.069
+    }
+  },
+  {
+    "name": "Richmond Modern Townhouse",
+    "description": "Brand new 4-bedroom townhouse in Richmond's new development. Contemporary design with smart home features, air conditioning, and high-end appliances. Double garage, private patio, and close to YVR airport. Perfect for families and professionals.",
+    "price": "$1,225,000",
+    "bedrooms": 4,
+    "bathrooms": 3.5,
+    "house_sqft": 2300,
+    "lot_sqft": 2000,
+    "HOA_fees": "$275",
+    "date_built": 2024,
+    "listing_updated": "January 23, 2025 at 09:45am",
+    "listed_by": "Lisa Park MLS #90123456 604-555-0901, New Development Specialists",
+    "address": "8765 Cambie Rd, Richmond, BC V6X 3X5",
+    "url": "https://www.realtor.ca/real-estate/56789013/8765-cambie-rd-richmond-bc-v6x-3x5",
+    "geo": {
+      "lat": 49.166,
+      "lon": -123.117
+    }
+  },
+  {
+    "name": "La Jolla Coastal Retreat",
+    "description": "Elegant 2-bedroom coastal retreat just minutes from La Jolla Cove. Completely renovated with designer finishes, ocean glimpses from master bedroom, and private courtyard. Perfect for those seeking a luxurious yet low-maintenance lifestyle near world-class beaches and dining.",
+    "price": "$875,000",
+    "bedrooms": 2,
+    "bathrooms": 2,
+    "house_sqft": 1350,
+    "lot_sqft": 3200,
+    "HOA_fees": "$385",
+    "date_built": 1985,
+    "listing_updated": "January 15, 2025 at 02:30pm",
+    "listed_by": "Patricia Williams DRE #02345678 858-555-0234, Coastal Elite Realty",
+    "address": "7654 Prospect St, La Jolla, CA 92037",
+    "url": "https://www.zillow.com/homedetails/7654-Prospect-St-La-Jolla-CA-92037/012345678_zpid/",
+    "geo": {
+      "lat": 32.847,
+      "lon": -117.271
+    }
+  },
+  {
+    "name": "Banker's Hill City View Condo",
+    "description": "Sophisticated 1-bedroom plus den condo in prestigious Banker's Hill. Floor-to-ceiling windows with panoramic downtown and bay views. Completely remodeled with premium finishes, in-unit laundry, and secured parking. Walk to Balboa Park and Little Italy.",
+    "price": "$785,000",
+    "bedrooms": 1,
+    "bathrooms": 2,
+    "house_sqft": 1100,
+    "lot_sqft": 0,
+    "HOA_fees": "$675",
+    "date_built": 2008,
+    "listing_updated": "January 24, 2025 at 03:15pm",
+    "listed_by": "Thomas Anderson DRE #03456789 619-555-0345, Downtown Living Specialists",
+    "address": "1357 9th Ave, San Diego, CA 92101",
+    "url": "https://www.zillow.com/homedetails/1357-9th-Ave-San-Diego-CA-92101/123456789_zpid/",
+    "geo": {
+      "lat": 32.724,
+      "lon": -117.154
+    }
+  },
+  {
+    "name": "Encinitas Beach Town Bungalow",
+    "description": "Charming 3-bedroom beach bungalow in the heart of Encinitas. Recently updated with modern amenities while preserving original character. Private backyard with fruit trees, walking distance to Moonlight Beach and downtown shops. Perfect for the coastal lifestyle.",
+    "price": "$945,000",
+    "bedrooms": 3,
+    "bathrooms": 2,
+    "house_sqft": 1550,
+    "lot_sqft": 4800,
+    "HOA_fees": "$0",
+    "date_built": 1965,
+    "listing_updated": "January 11, 2025 at 10:45am",
+    "listed_by": "Maria Gonzalez DRE #04567890 760-555-0456, Beach Town Properties",
+    "address": "468 2nd St, Encinitas, CA 92024",
+    "url": "https://www.zillow.com/homedetails/468-2nd-St-Encinitas-CA-92024/234567890_zpid/",
+    "geo": {
+      "lat": 33.037,
+      "lon": -117.292
+    }
+  }
+]

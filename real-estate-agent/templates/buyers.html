@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Buyers</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="top-nav">
+    <a href="/">Home</a>
+    <a href="/buyers">Buyers</a>
+    <a href="/saved">Properties</a>
+    <a href="/tours">Tours</a>
+  </div>
+  <main class="page">
+    <header style="margin-bottom: 16px;">
+      <h1 style="margin:0">Create Buyer</h1>
+      <p style="color:#6b7280; margin-top:6px;">
+        Add a buyer profile so the home page can personalize search results and saved properties.
+      </p>
+    </header>
+
+    <form id="buyerForm" class="card" style="max-width:720px">
+      <div class="form-row">
+        <label for="buyerInput">Buyer <span style="color:#9ca3af">(full name)</span></label>
+        <input id="buyerInput" type="text" placeholder="e.g., Daniel James" required autocomplete="name">
+      </div>
+
+      <div class="form-grid" style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:12px;">
+        <div class="form-row">
+          <label for="locationInput">Location</label>
+          <input id="locationInput" type="text" placeholder="e.g., Vancouver" required autocomplete="address-level2">
+          <small class="hint">City or region</small>
+        </div>
+        <div class="form-row">
+          <label for="bedroomsInput">Bedrooms</label>
+          <input id="bedroomsInput" type="number" min="0" step="1" inputmode="numeric" placeholder="3" required>
+        </div>
+        <div class="form-row">
+          <label for="bathroomsInput">Bathrooms</label>
+          <input id="bathroomsInput" type="number" min="0" step="1" inputmode="numeric" placeholder="2" required>
+        </div>
+      </div>
+
+      <fieldset class="form-row" style="border:1px solid #e5e7eb; border-radius:8px; padding:12px;">
+        <legend style="font-weight:600; padding:0 6px; color:#374151;">Budget</legend>
+        <div class="form-grid" style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:12px;">
+          <div>
+            <label for="budgetMinInput">Min</label>
+            <input id="budgetMinInput" type="text" inputmode="numeric" placeholder="1,200,000" aria-describedby="budgetHelp" required>
+          </div>
+          <div>
+            <label for="budgetMaxInput">Max</label>
+            <input id="budgetMaxInput" type="text" inputmode="numeric" placeholder="1,500,000" aria-describedby="budgetHelp" required>
+          </div>
+        </div>
+        <small id="budgetHelp" class="hint">You can type numbers with commas (e.g., 1,000,000)</small>
+      </fieldset>
+
+      <div class="form-actions" style="display:flex; align-items:center; gap:12px; margin-top:12px;">
+        <button type="submit" class="btn">Create Buyer</button>
+        <span id="buyerFormStatus" class="status" style="font-size:14px;"></span>
+      </div>
+    </form>
+
+    <section class="card" style="max-width:720px; margin-top:16px">
+      <h2 style="margin-top:0">Existing Buyers</h2>
+      <div id="buyersList" class="list"></div>
+    </section>
+  </main>
+
+  <script src="{{ url_for('static', filename='js/buyers.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/nav.js') }}"></script>
+</body>
+</html>

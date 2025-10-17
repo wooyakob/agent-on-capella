@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Properties</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <div class="top-nav">
+    <a href="/">Home</a>
+    <a href="/buyers">Buyers</a>
+    <a href="/saved">Properties</a>
+    <a href="/tours">Tours</a>
+  </div>
+  <main class="page">
+    <h1>Properties</h1>
+    <div class="controls">
+      <input id="buyerNameInput" class="profile-input" list="buyerNames" placeholder="Select a buyer (e.g., Jake Wood)">
+      <datalist id="buyerNames"></datalist>
+      <button id="refreshBtn" class="btn">Refresh</button>
+    </div>
+    <div id="propertiesMeta" class="properties-meta"></div>
+    <div id="propertiesList" class="properties-container"></div>
+  </main>
+  <script src="{{ url_for('static', filename='js/nearby.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/saved.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/nav.js') }}"></script>
+</body>
+</html>
