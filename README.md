@@ -1,38 +1,52 @@
-# real-estate-agent
-It is an Agent with Long Term Memory of a property buyer's preferences and available houses in their location. And flexibility to find properties based on specific requirements. To save properties and schedule property tours. It is a functional Agent that showcases Capella's diverse data platform capabilities: operational/KV, vector, geospatial and built in caching, to find, serve and store unique properties for a buyer at speed.
+# agent-on-capella
+An agentic real-estate search experience on Couchbase Capella that personalizes property discovery with vector search and long‑term memory.
 
-## An Agent with Long Term Memory of:
-- Available Properties
-- Buyer's Preferences
-- Saved Properties
-- Scheduled Tours
+---
 
-## Single Agent Architecture (for now)
-### Routes:
-1. Direct to LLM - us.meta.llama4-maverick-17b-instruct-v1:0, for general queries e.g. mortgage approval process.
-2. CB Vector Search Tool - finding properties based on cosine similarity of text embeddings.
-3. Gmaps API/Geospatial Search - using lat, lon of property addresses, to find nearby schools and restaurants.
-4. Realtime web search using Tavily API - for current housing market trends, average house prices.
+## Overview
+This project demonstrates how Capella’s unified platform enables fast, intelligent, and personalized online buying experiences by combining:
+- **Vector similarity search** for semantic property matching.
+- **Long‑term memory** of user preferences, saved homes, and scheduled tours.
+- **Tool routing** to the best capability per request (LLM, vector index, geospatial, and web search).
 
-## Americas AI Challenge Team:
-1. Kevin Farley
-2. Dan James
-3. Seong Cho
-4. Jake Wood
+## Features
+- **Personalized discovery** using embeddings-powered search.
+- **Long‑term memory** of:
+  - Available properties
+  - Buyer preferences
+  - Saved properties
+  - Scheduled tours
+- **Multi‑tool routing** for general Q&A, semantic search, geospatial lookups, and real‑time web trends.
 
-## Models Used:
-- Text Embedding Model: Titan Text Embeddings V2 (1024 dimensions). Similarity Metric: Cosine for text similarity in a RAG application.
-- Large Language Model: us.meta.llama4-maverick-17b-instruct-v1:0 
+## Architecture
+Single-agent pattern that routes user requests to the optimal tool.
 
-## Couchbase Capella Data Structure:
-- Bucket: properties
-  - Scope: 2025-listings 
-  - Collection: united-states
+### Routes
+1. **Direct to LLM** — `us.meta.llama4-maverick-17b-instruct-v1:0` for general questions (e.g., mortgage approval).
+2. **CB Vector Search Tool** — cosine similarity on text embeddings to find relevant properties.
+3. **Gmaps API / Geospatial Search** — uses property latitude/longitude to find nearby schools and restaurants.
+4. **Realtime Web Search (Tavily API)** — current market trends and average prices.
 
-- Bucket: profiles
-  - Scope: buyers
-  - Collection: 2025
+## Models
+- **Text Embeddings:** Titan Text Embeddings V2 (1024 dimensions). Similarity: Cosine.
+- **LLM:** `us.meta.llama4-maverick-17b-instruct-v1:0`.
 
-- Bucket: profiles
-  - Scope: tours
-  - Collection: 2025
+## Vector Index
+- Cosine similarity
+- 1024 dimensions
+
+## Data Model (Couchbase Capella)
+- **Bucket:** `properties`
+  - **Scope:** `2025-listings`
+  - **Collection:** `united-states`
+
+- **Bucket:** `profiles`
+  - **Scope:** `buyers`
+  - **Collection:** `2025`
+
+- **Bucket:** `profiles`
+  - **Scope:** `tours`
+  - **Collection:** `2025`
+
+## Reference
+- [Write-up: Search your dream property — building an agentic app on Capella (LinkedIn)](https://www.linkedin.com/pulse/search-dream-property-building-agentic-app-capella-jacob-wood-jmgmc/)
