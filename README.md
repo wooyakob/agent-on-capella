@@ -1,6 +1,10 @@
 # agent-on-capella
 An agentic real-estate search experience on Couchbase Capella that personalizes property discovery with vector search and long‑term memory.
 
+## Diagram
+ ![Architecture diagram](diagram.png)
+ - [Source (`agent-on-capella.drawio`)](agent-on-capella.drawio)
+
 ---
 
 ## Overview
